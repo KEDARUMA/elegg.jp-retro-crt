@@ -398,13 +398,14 @@ export class Terminal {
       throw new Error(`manifest ${manifestResponse.status}`);
     }
     const manifest = await manifestResponse.json();
+    const sizes = manifest.sizes || {};
     this.fs = dir({});
     for (const path of manifest.dirs || []) {
       this.ensureDirectory(path);
     }
     for (const path of manifest.files || []) {
       if (isJpegPath(path)) {
-        this.writeImageFile(path);
+        this.writeImageFile(path, sizes[path] ?? 0);
         continue;
       }
       const response = await fetch(`/root/${path}`, { cache: 'no-store' });
@@ -412,7 +413,7 @@ export class Terminal {
         throw new Error(`${path} ${response.status}`);
       }
       const content = (await response.text()).replace(/\r?\n/g, '\r\n').replace(/\r\n$/, '');
-      this.writeFile(path, content);
+      this.writeFile(path, content, sizes[path] ?? content.length);
     }
   }
 
@@ -442,7 +443,7 @@ export class Terminal {
     }
   }
 
-  writeFile(path, content) {
+  writeFile(path, content, size = content.length) {
     const parts = this.normalizePath(`/${path}`).slice(1).split('/').filter(Boolean);
     const name = parts.pop();
     this.ensureDirectory(`/${parts.join('/')}`);
@@ -450,10 +451,10 @@ export class Terminal {
     for (const part of parts) {
       node = node.children[part];
     }
-    node.children[name] = file(content);
+    node.children[name] = file(content, { size });
   }
 
-  writeImageFile(path) {
+  writeImageFile(path, size = 0) {
     const parts = this.normalizePath(`/${path}`).slice(1).split('/').filter(Boolean);
     const name = parts.pop();
     this.ensureDirectory(`/${parts.join('/')}`);
@@ -464,7 +465,7 @@ export class Terminal {
     node.children[name] = file('', {
       media: 'image/jpeg',
       url: `/root/${path}`,
-      size: 0,
+      size,
     });
   }
 
@@ -688,7 +689,7 @@ export class Terminal {
         }
       }
       if (char === '\r' && text[i + 1] === '\n') {
-        this.outputQueue.push({ type: 'newline' });
+        this.outputQueue.push({ type: 'char', char: '\n' });
         i += 1;
         continue;
       }
@@ -701,7 +702,11 @@ export class Terminal {
   }
 
   processOutputQueue() {
-    if (this.waitingImageRows.length > 0 || this.waitingImageTasks.length > 0 || this.activeImageTasks.length > 0) {
+    if (
+      this.waitingImageRows.length > 0 ||
+      this.waitingImageTasks.length > 0 ||
+      this.activeImageTasks.length > 0
+    ) {
       return;
     }
     let processed = 0;
@@ -719,13 +724,11 @@ export class Terminal {
         this.applyCursor(item.payload, item.finalChar);
         continue;
       }
-      if (item.type === 'newline') {
-        this.cursorX = 0;
-        this.newLine();
-        processed += 1;
-        break;
-      }
       if (item.type === 'char') {
+        if (this.activeGlyphTasks.length + this.waitingGlyphTasks.length >= MAX_GLYPH_TASKS) {
+          this.outputQueue.unshift(item);
+          break;
+        }
         const didNewLine = this.processOutputChar(item.char);
         processed += 1;
         if (didNewLine) {
@@ -736,16 +739,7 @@ export class Terminal {
   }
 
   processOutputChar(char) {
-    if (char === '\r') {
-      this.cursorX = 0;
-      return false;
-    }
-    if (char === '\n') {
-      this.newLine();
-      return true;
-    }
-    this.putChar(char);
-    return false;
+    return this.putChar(char);
   }
 
   applySgr(payload) {
@@ -782,6 +776,14 @@ export class Terminal {
   }
 
   putChar(char) {
+    if (char === '\r') {
+      this.cursorX = 0;
+      return false;
+    }
+    if (char === '\n') {
+      this.newLine();
+      return true;
+    }
     const width = isFullWidth(char) ? 2 : 1;
     if (this.cursorX + width > COLS) {
       this.newLine();
@@ -825,8 +827,8 @@ export class Terminal {
 
   newLine() {
     this.cursorX = 0;
-    this.cursorY += 1;
-    if (this.cursorY < ROWS) {
+    if (this.cursorY < ROWS - 1) {
+      this.cursorY += 1;
       return;
     }
     this.cells.shift();

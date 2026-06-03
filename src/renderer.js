@@ -65,7 +65,7 @@ void main() {
   ) * 0.25;
   color = mix(color, glow, 0.16 + u_bleed * 0.2);
 
-  float sub = mod(floor(v_uv.x * 512.0), 3.0);
+  float sub = mod(floor(v_uv.y * 256.0), 3.0);
   vec3 mask = sub < 1.0 ? vec3(1.0, 0.58, 0.58) : (sub < 2.0 ? vec3(0.58, 1.0, 0.58) : vec3(0.58, 0.58, 1.0));
   float scan = 0.58 + 0.42 * smoothstep(0.16, 0.86, fract(v_uv.y * 256.0));
   float vignette = smoothstep(0.88, 0.22, length(v_uv - 0.5));

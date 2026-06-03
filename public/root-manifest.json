@@ -21,5 +21,19 @@
     "home/guest/PROJECTS.TXT",
     "README.TXT",
     "var/log/SYNC.LOG"
-  ]
+  ],
+  "sizes": {
+    "etc/MOTD.TXT": 63,
+    "home/guest/ABOUT.TXT": 229,
+    "home/guest/docs/ANSI.TXT": 130,
+    "home/guest/docs/waganeko.txt": 5957,
+    "home/guest/img/1.jpg": 3810569,
+    "home/guest/img/2.jpg": 1262041,
+    "home/guest/img/3.jpg": 2987303,
+    "home/guest/img/4.jpg": 1656020,
+    "home/guest/img/5.jpg": 6344815,
+    "home/guest/PROJECTS.TXT": 140,
+    "README.TXT": 227,
+    "var/log/SYNC.LOG": 94
+  }
 }

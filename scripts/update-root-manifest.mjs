@@ -1,4 +1,4 @@
-import { readdir, writeFile } from 'node:fs/promises';
+import { readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const rootDir = path.resolve('public/root');
@@ -7,6 +7,7 @@ const ignoredNames = new Set(['.DS_Store']);
 
 const dirs = [];
 const files = [];
+const sizes = {};
 
 async function walk(relativeDir = '') {
   const absoluteDir = path.join(rootDir, relativeDir);
@@ -26,6 +27,8 @@ async function walk(relativeDir = '') {
       await walk(relativePath);
     } else if (entry.isFile()) {
       files.push(relativePath);
+      const fileStat = await stat(path.join(rootDir, relativePath));
+      sizes[relativePath] = fileStat.size;
     }
   }
 }
@@ -35,6 +38,7 @@ await walk();
 const manifest = {
   dirs,
   files,
+  sizes,
 };
 
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
