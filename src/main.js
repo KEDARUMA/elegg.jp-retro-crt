@@ -1,8 +1,9 @@
 import './style.css';
-import { CrtRenderer } from './renderer.js';
+import { CRT_CSS_IMAGE_ANTIALIAS, CrtRenderer } from './renderer.js';
 import { Terminal } from './terminal.js';
 
 const crtCanvas = document.querySelector('#crtCanvas');
+crtCanvas.classList.toggle('is-antialiased', CRT_CSS_IMAGE_ANTIALIAS);
 const lowCanvas = document.createElement('canvas');
 lowCanvas.width = 512;
 lowCanvas.height = 256;

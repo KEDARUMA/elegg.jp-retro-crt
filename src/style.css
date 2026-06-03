@@ -87,6 +87,10 @@ input {
   background: #020302;
 }
 
+#crtCanvas.is-antialiased {
+  image-rendering: auto;
+}
+
 .glass {
   pointer-events: none;
   position: absolute;

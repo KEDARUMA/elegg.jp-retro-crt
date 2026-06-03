@@ -4,6 +4,7 @@
     "/home",
     "/home/guest",
     "/home/guest/docs",
+    "/home/guest/img",
     "/var",
     "/var/log"
   ],
@@ -12,6 +13,11 @@
     "home/guest/ABOUT.TXT",
     "home/guest/docs/ANSI.TXT",
     "home/guest/docs/waganeko.txt",
+    "home/guest/img/1.jpg",
+    "home/guest/img/2.jpg",
+    "home/guest/img/3.jpg",
+    "home/guest/img/4.jpg",
+    "home/guest/img/5.jpg",
     "home/guest/PROJECTS.TXT",
     "README.TXT",
     "var/log/SYNC.LOG"

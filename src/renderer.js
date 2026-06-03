@@ -80,6 +80,16 @@ void main() {
 }
 `;
 
+// trueにすると、CSSによるcanvas拡大時の補間を有効にする。
+export const CRT_CSS_IMAGE_ANTIALIAS = true;
+
+// trueにすると、WebGLの入力テクスチャサンプリングをLINEARにする。
+export const CRT_TEXTURE_ANTIALIAS = true;
+
+// trueにすると、WebGLコンテキスト作成時のantialiasを有効にする。
+// 作成後は切り替えできないため、変更後はリロードが必要。
+export const CRT_WEBGL_ANTIALIAS = true;
+
 export class CrtRenderer {
   constructor(canvas, sourceCanvas) {
     this.canvas = canvas;
@@ -92,7 +102,7 @@ export class CrtRenderer {
     this.burst = 0;
     this.gl = canvas.getContext('webgl', {
       alpha: false,
-      antialias: false,
+      antialias: CRT_WEBGL_ANTIALIAS,
       depth: false,
       stencil: false,
       preserveDrawingBuffer: false,
@@ -124,8 +134,9 @@ export class CrtRenderer {
 
     this.texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    const textureFilter = CRT_TEXTURE_ANTIALIAS ? gl.LINEAR : gl.NEAREST;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, textureFilter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, textureFilter);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
