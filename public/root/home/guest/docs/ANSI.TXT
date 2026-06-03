@@ -1,0 +1,9 @@
+Supported ANSI features:
+
+- SGR colors
+- bold
+- inverse
+- cursor home
+- clear screen
+
+More terminal controls will be added later.

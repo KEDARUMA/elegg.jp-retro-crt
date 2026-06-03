@@ -1,0 +1,19 @@
+{
+  "dirs": [
+    "/etc",
+    "/home",
+    "/home/guest",
+    "/home/guest/docs",
+    "/var",
+    "/var/log"
+  ],
+  "files": [
+    "etc/MOTD.TXT",
+    "home/guest/ABOUT.TXT",
+    "home/guest/docs/ANSI.TXT",
+    "home/guest/docs/waganeko.txt",
+    "home/guest/PROJECTS.TXT",
+    "README.TXT",
+    "var/log/SYNC.LOG"
+  ]
+}
