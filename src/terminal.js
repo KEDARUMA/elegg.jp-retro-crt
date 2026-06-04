@@ -17,6 +17,7 @@ const IMAGE_STEPS = 20;
 const MAX_IMAGE_GLYPH_STARTS_PER_FRAME = 2;
 // 1フレームで処理するテキスト文字数。
 const TEXT_OUTPUT_CHARS_PER_FRAME = 1;
+const MAX_SCROLLBACK_ROWS = 256;
 
 const PALETTE = [
   '#060806',
@@ -56,6 +57,20 @@ function freshCell() {
     link: null,
     linkAuto: false,
     wideTail: false,
+  };
+}
+
+function freshRow() {
+  return Array.from({ length: COLS }, freshCell);
+}
+
+function imageCell(imageData) {
+  return {
+    ...freshCell(),
+    media: 'image-block',
+    imageData,
+    blockWidth: imageData.width,
+    blockHeight: imageData.height,
   };
 }
 
@@ -200,7 +215,9 @@ export class Terminal {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
-    this.cells = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, freshCell));
+    this.cells = Array.from({ length: ROWS }, freshRow);
+    this.scrollbackRows = [];
+    this.scrollbackOffset = 0;
     this.cursorX = 0;
     this.cursorY = 0;
     this.state = { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
@@ -245,6 +262,14 @@ export class Terminal {
   async handleKey(event) {
     if (event.ctrlKey && event.key.toLowerCase() === 'c') {
       this.exitMdsBrowser();
+      return;
+    }
+    if (event.key === 'PageUp') {
+      this.scrollBack(ROWS);
+      return;
+    }
+    if (event.key === 'PageDown') {
+      this.scrollBack(-ROWS);
       return;
     }
     if (this.mdsBrowserActive) {
@@ -311,7 +336,7 @@ export class Terminal {
   async handlePointer(x, y) {
     const col = Math.max(0, Math.min(COLS - 1, Math.floor(x / CELL_W)));
     const row = Math.max(0, Math.min(ROWS - 1, Math.floor(y / CELL_H)));
-    const link = this.cells[row][col]?.link;
+    const link = this.getVisibleRows()[row]?.[col]?.link;
     if (!link) {
       return false;
     }
@@ -331,17 +356,42 @@ export class Terminal {
     this.setHoverRange(null);
   }
 
+  handleWheel(deltaY) {
+    const lines = Math.max(1, Math.ceil(Math.abs(deltaY) / CELL_H));
+    this.scrollBack(deltaY > 0 ? -lines : lines);
+  }
+
+  scrollBack(lines) {
+    const nextOffset = Math.max(0, Math.min(this.scrollbackRows.length, this.scrollbackOffset + lines));
+    if (nextOffset === this.scrollbackOffset) {
+      return;
+    }
+    this.setHoverRange(null);
+    this.scrollbackOffset = nextOffset;
+    this.repaintViewport();
+  }
+
+  followOutput() {
+    if (this.scrollbackOffset === 0) {
+      return;
+    }
+    this.setHoverRange(null);
+    this.scrollbackOffset = 0;
+    this.repaintViewport();
+  }
+
   getLinkRange(row, col) {
-    const link = this.cells[row][col]?.link;
+    const rows = this.getVisibleRows();
+    const link = rows[row]?.[col]?.link;
     if (!link) {
       return null;
     }
     let start = col;
     let end = col;
-    while (start > 0 && this.cells[row][start - 1].link === link) {
+    while (start > 0 && rows[row][start - 1].link === link) {
       start -= 1;
     }
-    while (end < COLS - 1 && this.cells[row][end + 1].link === link) {
+    while (end < COLS - 1 && rows[row][end + 1].link === link) {
       end += 1;
     }
     return { row, start, end, link };
@@ -868,6 +918,7 @@ export class Terminal {
   }
 
   drawImageFromNextLine(image, scalePercent) {
+    this.followOutput();
     const targetWidth = Math.max(1, Math.min(this.canvas.width, Math.round(this.canvas.width * (scalePercent / 100))));
     const targetHeight = Math.max(1, Math.round(targetWidth * (image.naturalHeight / image.naturalWidth)));
     const imageCanvas = document.createElement('canvas');
@@ -897,6 +948,8 @@ export class Terminal {
         this.cells[y][x] = freshCell();
       }
     }
+    this.scrollbackRows = [];
+    this.scrollbackOffset = 0;
     this.cursorX = 0;
     this.cursorY = 0;
     this.activeGlyphTasks = [];
@@ -919,6 +972,8 @@ export class Terminal {
         this.cells[y][x] = freshCell();
       }
     }
+    this.scrollbackRows = [];
+    this.scrollbackOffset = 0;
     this.cursorX = 0;
     this.cursorY = 0;
     this.activeGlyphTasks = [];
@@ -1024,6 +1079,7 @@ export class Terminal {
   }
 
   processOutputChar(char) {
+    this.followOutput();
     return this.putChar(char);
   }
 
@@ -1146,8 +1202,12 @@ export class Terminal {
   }
 
   repaintCell(x, y, hover = false) {
-    const cell = this.cells[y][x];
+    const cell = this.getVisibleRows()[y]?.[x];
     if (!cell || cell.wideTail) {
+      return;
+    }
+    if (cell.media === 'image-block') {
+      this.ctx.putImageData(cell.imageData, x * CELL_W, y * CELL_H);
       return;
     }
     const char = cell.ch || ' ';
@@ -1164,20 +1224,50 @@ export class Terminal {
     this.ctx.putImageData(imageData, x * CELL_W, y * CELL_H);
   }
 
+  getVisibleRows() {
+    const rows = [...this.scrollbackRows, ...this.cells];
+    const end = Math.max(ROWS, rows.length - this.scrollbackOffset);
+    const start = Math.max(0, end - ROWS);
+    const visible = rows.slice(start, end);
+    while (visible.length < ROWS) {
+      visible.unshift(freshRow());
+    }
+    return visible;
+  }
+
+  repaintViewport() {
+    this.ctx.fillStyle = PALETTE[0];
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    const rows = this.getVisibleRows();
+    for (let y = 0; y < ROWS; y += 1) {
+      for (let x = 0; x < COLS; x += 1) {
+        const cell = rows[y][x];
+        if (!cell || cell.wideTail) {
+          continue;
+        }
+        if (cell.media === 'image-block') {
+          this.ctx.putImageData(cell.imageData, x * CELL_W, y * CELL_H);
+        } else if (!isBlankChar(cell.ch || ' ')) {
+          this.repaintCell(x, y, false);
+        }
+      }
+    }
+  }
+
   newLine() {
     this.cursorX = 0;
     if (this.cursorY < ROWS - 1) {
       this.cursorY += 1;
       return;
     }
-    this.cells.shift();
-    this.cells.push(Array.from({ length: COLS }, freshCell));
-    this.cursorY = ROWS - 1;
-    this.scrollFramebuffer();
+    this.scrollUp();
   }
 
   render(time) {
     this.processOutputQueue();
+    if (this.scrollbackOffset > 0) {
+      return;
+    }
     this.startWaitingImageRow();
     this.startWaitingImageTasks();
     this.startWaitingGlyphTasks();
@@ -1230,6 +1320,10 @@ export class Terminal {
     const blocks = this.waitingImageRows.shift();
     const destY = this.cursorY * CELL_H;
     for (const block of blocks) {
+      const cellX = Math.floor(block.x / CELL_W);
+      if (cellX >= 0 && cellX < COLS) {
+        this.cells[this.cursorY][cellX] = imageCell(block.target);
+      }
       this.waitingImageTasks.push(
         new ImageBlockTask({
           x: block.x,
@@ -1244,10 +1338,25 @@ export class Terminal {
   moveToNextImageLine() {
     this.cursorX = 0;
     if (this.cursorY >= ROWS - 1) {
-      this.scrollFramebuffer();
+      this.scrollUp();
       return;
     }
     this.cursorY += 1;
+  }
+
+  pushScrollbackRow(row) {
+    this.scrollbackRows.push(row);
+    if (this.scrollbackRows.length > MAX_SCROLLBACK_ROWS) {
+      this.scrollbackRows.shift();
+      this.scrollbackOffset = Math.max(0, this.scrollbackOffset - 1);
+    }
+  }
+
+  scrollUp() {
+    this.pushScrollbackRow(this.cells.shift());
+    this.cells.push(freshRow());
+    this.cursorY = ROWS - 1;
+    this.scrollFramebuffer();
   }
 
   scrollFramebuffer() {

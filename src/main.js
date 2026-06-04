@@ -54,6 +54,11 @@ crtCanvas.addEventListener('mouseleave', () => {
   crtCanvas.style.cursor = '';
 });
 
+crtCanvas.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  terminal.handleWheel(event.deltaY);
+});
+
 window.addEventListener('keydown', (event) => {
   if (event.ctrlKey && event.key.toLowerCase() === 'c') {
     event.preventDefault();
