@@ -41,6 +41,10 @@ function isFullWidth(char) {
   return /[^\u0000-\u00ff]/.test(char);
 }
 
+function isBlankChar(char) {
+  return char === ' ' || char === '　';
+}
+
 function freshCell() {
   return {
     ch: ' ',
@@ -48,6 +52,9 @@ function freshCell() {
     bg: 0,
     bold: false,
     inverse: false,
+    underline: false,
+    link: null,
+    linkAuto: false,
     wideTail: false,
   };
 }
@@ -92,6 +99,37 @@ function loadImage(url) {
   });
 }
 
+function makeGlyphTarget({ char, width, fg, bg, bold, inverse, underline }) {
+  const fgColor = hexToRgb(PALETTE[inverse ? bg : fg]);
+  const bgColor = hexToRgb(PALETTE[inverse ? fg : bg]);
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = width;
+  maskCanvas.height = CELL_H;
+  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+  maskCtx.clearRect(0, 0, width, CELL_H);
+  maskCtx.fillStyle = '#fff';
+  maskCtx.textBaseline = 'top';
+  maskCtx.font = `${bold ? 700 : 400} 16px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  if (char) {
+    maskCtx.fillText(char, 0, -1);
+  }
+  if (underline) {
+    maskCtx.fillRect(0, CELL_H - 3, width, 1);
+  }
+  const mask = maskCtx.getImageData(0, 0, width, CELL_H).data;
+  const target = new ImageData(width, CELL_H);
+
+  for (let i = 0; i < target.data.length; i += 4) {
+    const alpha = mask[i + 3] / 255;
+    target.data[i] = Math.round(bgColor.r + (fgColor.r - bgColor.r) * alpha);
+    target.data[i + 1] = Math.round(bgColor.g + (fgColor.g - bgColor.g) * alpha);
+    target.data[i + 2] = Math.round(bgColor.b + (fgColor.b - bgColor.b) * alpha);
+    target.data[i + 3] = 255;
+  }
+
+  return target;
+}
+
 class ImageBlockTask {
   constructor({ x, y, target }) {
     this.x = x;
@@ -123,7 +161,7 @@ class ImageBlockTask {
 }
 
 class GlyphTask {
-  constructor({ x, y, char, fg, bg, bold, inverse }) {
+  constructor({ x, y, char, fg, bg, bold, inverse, underline }) {
     this.x = x;
     this.y = y;
     this.char = char;
@@ -132,32 +170,11 @@ class GlyphTask {
     this.step = 0;
     this.current = makeWhiteImageData(this.width, this.height);
     this.target = new ImageData(this.width, this.height);
-    this.prepare({ fg, bg, bold, inverse });
+    this.prepare({ fg, bg, bold, inverse, underline });
   }
 
-  prepare({ fg, bg, bold, inverse }) {
-    const fgColor = hexToRgb(PALETTE[inverse ? bg : fg]);
-    const bgColor = hexToRgb(PALETTE[inverse ? fg : bg]);
-    const maskCanvas = document.createElement('canvas');
-    maskCanvas.width = this.width;
-    maskCanvas.height = this.height;
-    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-    maskCtx.clearRect(0, 0, this.width, this.height);
-    maskCtx.fillStyle = '#fff';
-    maskCtx.textBaseline = 'top';
-    maskCtx.font = `${bold ? 700 : 400} 16px ui-monospace, SFMono-Regular, Menlo, monospace`;
-    if (this.char) {
-      maskCtx.fillText(this.char, 0, -1);
-    }
-    const mask = maskCtx.getImageData(0, 0, this.width, this.height).data;
-
-    for (let i = 0; i < this.current.data.length; i += 4) {
-      const alpha = mask[i + 3] / 255;
-      this.target.data[i] = Math.round(bgColor.r + (fgColor.r - bgColor.r) * alpha);
-      this.target.data[i + 1] = Math.round(bgColor.g + (fgColor.g - bgColor.g) * alpha);
-      this.target.data[i + 2] = Math.round(bgColor.b + (fgColor.b - bgColor.b) * alpha);
-      this.target.data[i + 3] = 255;
-    }
+  prepare({ fg, bg, bold, inverse, underline }) {
+    this.target = makeGlyphTarget({ char: this.char, width: this.width, fg, bg, bold, inverse, underline });
   }
 
   tick(ctx) {
@@ -186,7 +203,9 @@ export class Terminal {
     this.cells = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, freshCell));
     this.cursorX = 0;
     this.cursorY = 0;
-    this.state = { fg: 10, bg: 0, bold: false, inverse: false };
+    this.state = { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
+    this.stateStack = [];
+    this.activeLink = null;
     this.command = '';
     this.lastCommand = '';
     this.fs = dir({});
@@ -199,6 +218,8 @@ export class Terminal {
     this.waitingImageTasks = [];
     this.waitingImageRows = [];
     this.outputQueue = [];
+    this.hoverRange = null;
+    this.mdsBrowserActive = false;
   }
 
   async boot() {
@@ -212,22 +233,25 @@ export class Terminal {
       this.write('\x1b[36mANSI.SYS LOADED\x1b[0m\r\n');
       this.write('\x1b[36mROOTFS READY\x1b[0m\r\n\r\n');
       this.write('type \x1b[93mhelp\x1b[0m or \x1b[93mls -la\x1b[0m and press ENTER.\r\n\r\n');
+      await this.runStartupScript();
     } catch (error) {
       this.write(`\x1b[91mROOTFS ERROR: ${error.message}\x1b[0m\r\n\r\n`);
     }
-    this.showPrompt();
+    if (!this.mdsBrowserActive) {
+      this.showPrompt();
+    }
   }
 
   async handleKey(event) {
+    if (event.ctrlKey && event.key.toLowerCase() === 'c') {
+      this.exitMdsBrowser();
+      return;
+    }
+    if (this.mdsBrowserActive) {
+      return;
+    }
     if (event.key === 'Enter') {
-      this.write('\r\n');
-      const command = this.command.trim();
-      if (command) {
-        this.lastCommand = command;
-      }
-      await this.runCommand(command);
-      this.command = '';
-      this.showPrompt();
+      await this.submitCommand();
       return;
     }
     if (event.key === 'ArrowUp') {
@@ -248,8 +272,100 @@ export class Terminal {
       return;
     }
     if (event.key.length === 1 && /^[\x20-\x7e]$/.test(event.key)) {
-      this.command += event.key;
-      this.write(event.key);
+      this.typeChar(event.key);
+    }
+  }
+
+  async pasteText(text) {
+    if (this.mdsBrowserActive) {
+      return;
+    }
+    const normalized = text.replace(/\r\n?/g, '\n');
+    for (const char of normalized) {
+      if (char === '\n') {
+        await this.submitCommand();
+      } else if (/^[\x20-\x7e]$/.test(char)) {
+        this.typeChar(char);
+      }
+    }
+  }
+
+  typeChar(char) {
+    this.command += char;
+    this.write(char);
+  }
+
+  async submitCommand() {
+    this.write('\r\n');
+    const command = this.command.trim();
+    if (command) {
+      this.lastCommand = command;
+    }
+    await this.runCommand(command);
+    this.command = '';
+    if (!this.mdsBrowserActive) {
+      this.showPrompt();
+    }
+  }
+
+  async handlePointer(x, y) {
+    const col = Math.max(0, Math.min(COLS - 1, Math.floor(x / CELL_W)));
+    const row = Math.max(0, Math.min(ROWS - 1, Math.floor(y / CELL_H)));
+    const link = this.cells[row][col]?.link;
+    if (!link) {
+      return false;
+    }
+    await this.openLink(link);
+    return true;
+  }
+
+  handlePointerMove(x, y) {
+    const col = Math.max(0, Math.min(COLS - 1, Math.floor(x / CELL_W)));
+    const row = Math.max(0, Math.min(ROWS - 1, Math.floor(y / CELL_H)));
+    const range = this.getLinkRange(row, col);
+    this.setHoverRange(range);
+    return Boolean(range);
+  }
+
+  handlePointerLeave() {
+    this.setHoverRange(null);
+  }
+
+  getLinkRange(row, col) {
+    const link = this.cells[row][col]?.link;
+    if (!link) {
+      return null;
+    }
+    let start = col;
+    let end = col;
+    while (start > 0 && this.cells[row][start - 1].link === link) {
+      start -= 1;
+    }
+    while (end < COLS - 1 && this.cells[row][end + 1].link === link) {
+      end += 1;
+    }
+    return { row, start, end, link };
+  }
+
+  setHoverRange(range) {
+    if (
+      this.hoverRange &&
+      range &&
+      this.hoverRange.row === range.row &&
+      this.hoverRange.start === range.start &&
+      this.hoverRange.end === range.end &&
+      this.hoverRange.link === range.link
+    ) {
+      return;
+    }
+    const previous = this.hoverRange;
+    this.hoverRange = null;
+    if (previous) {
+      this.repaintRange(previous, false);
+    }
+    this.hoverRange = range;
+    if (this.hoverRange) {
+      this.repaintRange(this.hoverRange, true);
     }
   }
 
@@ -330,10 +446,12 @@ export class Terminal {
       this.write('  help      show command list\r\n');
       this.write('  about     show site profile\r\n');
       this.write('  projects  list experiments\r\n');
+      this.write('  echo TEXT print text\r\n');
       this.write('  cd PATH   change directory\r\n');
       this.write('  ls -la    list files\r\n');
       this.write('  cat FILE  print file\r\n');
       this.write('  imgcat FILE.jpg [SIZE%]\r\n');
+      this.write('  mds-browser FILE.mds\r\n');
       this.write('  reload    reload root filesystem\r\n');
       this.write('  ansi      print ANSI color test\r\n');
       this.write('  clear     clear screen\r\n');
@@ -349,6 +467,10 @@ export class Terminal {
       this.write('\x1b[93m01\x1b[0m CRT shader port\r\n');
       this.write('\x1b[93m02\x1b[0m ANSI terminal simulator\r\n');
       this.write('\x1b[93m03\x1b[0m HSYNC / VSYNC instability\r\n');
+      return;
+    }
+    if (name === 'echo') {
+      this.write(`${argv.slice(1).join(' ')}\r\n`);
       return;
     }
     if (name === 'ansi') {
@@ -381,11 +503,33 @@ export class Terminal {
       await this.imgCat(argv.slice(1));
       return;
     }
+    if (name === 'mds-browser') {
+      this.mdsBrowser(argv.slice(1));
+      return;
+    }
     if (name === 'reload') {
       await this.reloadFileSystem();
       return;
     }
     this.write(`Bad command or file name: ${command}\r\n`);
+  }
+
+  async runStartupScript() {
+    const result = this.getNode('/home/guest/.eshrc');
+    if (!result.node || result.node.type !== 'file' || result.node.media === 'image/jpeg') {
+      return;
+    }
+    const lines = result.node.content.split(/\r\n|\n|\r/);
+    for (const line of lines) {
+      const command = line.trim();
+      if (!command || command.startsWith('#')) {
+        continue;
+      }
+      await this.runCommand(command);
+      if (this.mdsBrowserActive) {
+        return;
+      }
+    }
   }
 
   showPrompt() {
@@ -571,6 +715,105 @@ export class Terminal {
     }
   }
 
+  mdsBrowser(paths) {
+    const path = paths[0];
+    if (!path) {
+      this.write('mds-browser: missing file operand\r\n');
+      return;
+    }
+    if (!/\.mds$/i.test(path)) {
+      this.write(`mds-browser: ${path}: only .mds is supported\r\n`);
+      return;
+    }
+    const result = this.getNode(path);
+    if (!result.node) {
+      this.write(`mds-browser: ${path}: No such file or directory\r\n`);
+      return;
+    }
+    if (result.node.type !== 'file') {
+      this.write(`mds-browser: ${path}: Is a directory\r\n`);
+      return;
+    }
+    this.mdsBrowserActive = true;
+    this.writeMds(`${result.node.content}\r\n`);
+  }
+
+  exitMdsBrowser() {
+    if (!this.mdsBrowserActive) {
+      return;
+    }
+    this.mdsBrowserActive = false;
+    this.write('\r\n^C\r\n');
+    this.showPrompt();
+  }
+
+  writeMds(text) {
+    let index = 0;
+    while (index < text.length) {
+      const rest = text.slice(index);
+      if (rest.startsWith('[[clear]]')) {
+        this.enqueueOutputAction(() => this.clearMdsScreen());
+        index += '[[clear]]'.length;
+        continue;
+      }
+
+      const markdownLink = rest.match(/^\[([^\]\r\n]+)\]\(([^)\r\n]+)\)/);
+      if (markdownLink) {
+        this.writeLinkedText(markdownLink[1], markdownLink[2], { fg: 14, bold: true, inverse: true, underline: true });
+        index += markdownLink[0].length;
+        continue;
+      }
+
+      const autoUrl = rest.match(/^https?:\/\/[^\s)]+/);
+      if (autoUrl) {
+        this.writeLinkedText(autoUrl[0], autoUrl[0], { fg: 14, bold: true, underline: true });
+        index += autoUrl[0].length;
+        continue;
+      }
+
+      const boldText = rest.match(/^\*([^*\r\n]+)\*/);
+      if (boldText) {
+        this.outputQueue.push({ type: 'style-push', style: { bold: true } });
+        this.write(boldText[1]);
+        this.outputQueue.push({ type: 'style-pop' });
+        index += boldText[0].length;
+        continue;
+      }
+
+      this.write(text[index]);
+      index += 1;
+    }
+  }
+
+  writeLinkedText(text, target, style) {
+    this.outputQueue.push({ type: 'style-push', style });
+    this.outputQueue.push({ type: 'link-start', target });
+    this.write(text);
+    this.outputQueue.push({ type: 'link-end' });
+    this.outputQueue.push({ type: 'style-pop' });
+  }
+
+  async openLink(target) {
+    if (/^https?:\/\//i.test(target)) {
+      window.open(target, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (target.startsWith('page:')) {
+      this.write(`\r\nOPEN INTERNAL PAGE: ${target.slice('page:'.length)}\r\n`);
+      return;
+    }
+    if (target.startsWith('cmd:')) {
+      const command = target.slice('cmd:'.length).trim();
+      this.write(`\r\n$ ${command}\r\n`);
+      await this.runCommand(command);
+      if (!this.mdsBrowserActive) {
+        this.showPrompt();
+      }
+      return;
+    }
+    this.write(`\r\nlink: unsupported target: ${target}\r\n`);
+  }
+
   async imgCat(args) {
     const [path, sizeArg] = args;
     if (!path) {
@@ -662,6 +905,28 @@ export class Terminal {
     this.waitingImageTasks = [];
     this.waitingImageRows = [];
     this.outputQueue = [];
+    this.stateStack = [];
+    this.activeLink = null;
+    this.hoverRange = null;
+    this.mdsBrowserActive = false;
+    this.ctx.fillStyle = PALETTE[0];
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  clearMdsScreen() {
+    for (let y = 0; y < ROWS; y += 1) {
+      for (let x = 0; x < COLS; x += 1) {
+        this.cells[y][x] = freshCell();
+      }
+    }
+    this.cursorX = 0;
+    this.cursorY = 0;
+    this.activeGlyphTasks = [];
+    this.waitingGlyphTasks = [];
+    this.activeImageTasks = [];
+    this.waitingImageTasks = [];
+    this.waitingImageRows = [];
+    this.hoverRange = null;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
@@ -716,6 +981,23 @@ export class Terminal {
         item.action();
         break;
       }
+      if (item.type === 'style-push') {
+        this.stateStack.push({ ...this.state });
+        this.state = { ...this.state, ...item.style };
+        continue;
+      }
+      if (item.type === 'style-pop') {
+        this.state = this.stateStack.pop() || { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
+        continue;
+      }
+      if (item.type === 'link-start') {
+        this.activeLink = item.target;
+        continue;
+      }
+      if (item.type === 'link-end') {
+        this.activeLink = null;
+        continue;
+      }
       if (item.type === 'sgr') {
         this.applySgr(item.payload);
         continue;
@@ -725,12 +1007,15 @@ export class Terminal {
         continue;
       }
       if (item.type === 'char') {
-        if (this.activeGlyphTasks.length + this.waitingGlyphTasks.length >= MAX_GLYPH_TASKS) {
+        const isBlank = isBlankChar(item.char);
+        if (!isBlank && this.activeGlyphTasks.length + this.waitingGlyphTasks.length >= MAX_GLYPH_TASKS) {
           this.outputQueue.unshift(item);
           break;
         }
         const didNewLine = this.processOutputChar(item.char);
-        processed += 1;
+        if (!isBlank) {
+          processed += 1;
+        }
         if (didNewLine) {
           break;
         }
@@ -746,9 +1031,11 @@ export class Terminal {
     const codes = payload ? payload.split(';').map((value) => Number(value || 0)) : [0];
     for (const code of codes) {
       if (code === 0) {
-        this.state = { fg: 10, bg: 0, bold: false, inverse: false };
+        this.state = { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
       } else if (code === 1) {
         this.state.bold = true;
+      } else if (code === 4) {
+        this.state.underline = true;
       } else if (code === 7) {
         this.state.inverse = true;
       } else if (code >= 30 && code <= 37) {
@@ -794,21 +1081,27 @@ export class Terminal {
       bg: this.state.bg,
       bold: this.state.bold,
       inverse: this.state.inverse,
+      underline: this.state.underline,
+      link: this.activeLink,
       wideTail: false,
     };
     this.cells[this.cursorY][this.cursorX] = cell;
-    this.enqueueGlyphTask({
-      x: this.cursorX * CELL_W,
-      y: this.cursorY * CELL_H,
-      char,
-      fg: cell.fg,
-      bg: cell.bg,
-      bold: cell.bold,
-      inverse: cell.inverse,
-    });
+    if (!isBlankChar(char)) {
+      this.enqueueGlyphTask({
+        x: this.cursorX * CELL_W,
+        y: this.cursorY * CELL_H,
+        char,
+        fg: cell.fg,
+        bg: cell.bg,
+        bold: cell.bold,
+        inverse: cell.inverse,
+        underline: cell.underline,
+      });
+    }
     if (width === 2 && this.cursorX + 1 < COLS) {
       this.cells[this.cursorY][this.cursorX + 1] = { ...cell, ch: '', wideTail: true };
     }
+    this.markAutoLinksForRow(this.cursorY);
     this.cursorX += width;
     if (this.cursorX >= COLS) {
       this.newLine();
@@ -821,8 +1114,54 @@ export class Terminal {
     }
     this.cursorX -= 1;
     this.cells[this.cursorY][this.cursorX] = freshCell();
+    this.markAutoLinksForRow(this.cursorY);
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(this.cursorX * CELL_W, this.cursorY * CELL_H, CELL_W, CELL_H);
+  }
+
+  markAutoLinksForRow(row) {
+    const cells = this.cells[row];
+    const line = cells.map((cell) => cell.ch || ' ').join('');
+    for (const cell of cells) {
+      if (cell.linkAuto) {
+        cell.link = null;
+        cell.linkAuto = false;
+      }
+    }
+    for (const match of line.matchAll(/https?:\/\/[^\s)]+/g)) {
+      const target = match[0];
+      for (let x = match.index; x < match.index + target.length && x < COLS; x += 1) {
+        if (!cells[x].link) {
+          cells[x].link = target;
+          cells[x].linkAuto = true;
+        }
+      }
+    }
+  }
+
+  repaintRange(range, hover) {
+    for (let x = range.start; x <= range.end; x += 1) {
+      this.repaintCell(x, range.row, hover);
+    }
+  }
+
+  repaintCell(x, y, hover = false) {
+    const cell = this.cells[y][x];
+    if (!cell || cell.wideTail) {
+      return;
+    }
+    const char = cell.ch || ' ';
+    const width = isFullWidth(char) ? CELL_W * 2 : CELL_W;
+    const imageData = makeGlyphTarget({
+      char,
+      width,
+      fg: cell.fg,
+      bg: cell.bg,
+      bold: cell.bold,
+      inverse: hover ? !cell.inverse : cell.inverse,
+      underline: cell.underline,
+    });
+    this.ctx.putImageData(imageData, x * CELL_W, y * CELL_H);
   }
 
   newLine() {
@@ -844,6 +1183,9 @@ export class Terminal {
     this.startWaitingGlyphTasks();
     this.activeGlyphTasks = this.activeGlyphTasks.filter((task) => !task.tick(this.ctx));
     this.activeImageTasks = this.activeImageTasks.filter((task) => !task.tick(this.ctx));
+    if (this.hoverRange) {
+      this.repaintRange(this.hoverRange, true);
+    }
   }
 
   enqueueGlyphTask(task) {
@@ -909,6 +1251,10 @@ export class Terminal {
   }
 
   scrollFramebuffer() {
+    if (this.hoverRange) {
+      this.repaintRange(this.hoverRange, false);
+    }
+    this.hoverRange = null;
     this.ctx.drawImage(this.canvas, 0, CELL_H, this.canvas.width, this.canvas.height - CELL_H, 0, 0, this.canvas.width, this.canvas.height - CELL_H);
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, this.canvas.height - CELL_H, this.canvas.width, CELL_H);

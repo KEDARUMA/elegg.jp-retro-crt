@@ -1,5 +1,6 @@
 {
   "dirs": [
+    "/content",
     "/etc",
     "/home",
     "/home/guest",
@@ -9,7 +10,9 @@
     "/var/log"
   ],
   "files": [
+    "content/link-test.mds",
     "etc/MOTD.TXT",
+    "home/guest/.eshrc",
     "home/guest/ABOUT.TXT",
     "home/guest/docs/ANSI.TXT",
     "home/guest/docs/waganeko.txt",
@@ -23,7 +26,9 @@
     "var/log/SYNC.LOG"
   ],
   "sizes": {
+    "content/link-test.mds": 235,
     "etc/MOTD.TXT": 63,
+    "home/guest/.eshrc": 64,
     "home/guest/ABOUT.TXT": 229,
     "home/guest/docs/ANSI.TXT": 130,
     "home/guest/docs/waganeko.txt": 5957,

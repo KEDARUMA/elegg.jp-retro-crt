@@ -31,12 +31,49 @@ controls.degauss.addEventListener('click', () => {
   terminal.write('\x1b[92m\r\nDEGAUSS COMPLETE\x1b[0m\r\n');
 });
 
+function getTerminalPoint(event) {
+  const rect = crtCanvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * lowCanvas.width,
+    y: ((event.clientY - rect.top) / rect.height) * lowCanvas.height,
+  };
+}
+
+crtCanvas.addEventListener('click', (event) => {
+  const { x, y } = getTerminalPoint(event);
+  terminal.handlePointer(x, y);
+});
+
+crtCanvas.addEventListener('mousemove', (event) => {
+  const { x, y } = getTerminalPoint(event);
+  crtCanvas.style.cursor = terminal.handlePointerMove(x, y) ? 'pointer' : '';
+});
+
+crtCanvas.addEventListener('mouseleave', () => {
+  terminal.handlePointerLeave();
+  crtCanvas.style.cursor = '';
+});
+
 window.addEventListener('keydown', (event) => {
+  if (event.ctrlKey && event.key.toLowerCase() === 'c') {
+    event.preventDefault();
+    terminal.handleKey(event);
+    return;
+  }
   if (event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
   event.preventDefault();
   terminal.handleKey(event);
+});
+
+window.addEventListener('paste', (event) => {
+  const text = event.clipboardData?.getData('text/plain') || '';
+  if (!text) {
+    return;
+  }
+  event.preventDefault();
+  terminal.pasteText(text);
 });
 
 terminal.boot();

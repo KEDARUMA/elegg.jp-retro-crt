@@ -1,0 +1,21 @@
+[[clear]]
+    
+---
+asciiart.club
+
+MDS LINK TEST
+
+Auto URL:
+https://example.com/
+
+Markdown link button:
+[Open Example](https://example.com/)
+
+Internal page:
+[Open About Page](page:about)
+
+Virtual command:
+[Run Echo](cmd:echo 'abc')
+
+Bold:
+This is *vold* text.
