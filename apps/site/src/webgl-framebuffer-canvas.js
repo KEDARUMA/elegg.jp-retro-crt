@@ -83,6 +83,8 @@ function parseColor(value) {
   ];
 }
 
+const FULLSCREEN_QUAD = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
+
 export class WebGlFramebufferCanvas {
   constructor(width, height) {
     this.canvas = document.createElement('canvas');
@@ -121,6 +123,19 @@ export class WebGlFramebufferCanvas {
     this.copyProgram = createProgram(gl, COPY_VERTEX, COPY_FRAGMENT);
     this.drawBuffer = gl.createBuffer();
     this.copyBuffer = gl.createBuffer();
+    this.drawLocations = {
+      position: gl.getAttribLocation(this.drawProgram, 'a_position'),
+      uv: gl.getAttribLocation(this.drawProgram, 'a_uv'),
+      resolution: gl.getUniformLocation(this.drawProgram, 'u_resolution'),
+      color: gl.getUniformLocation(this.drawProgram, 'u_color'),
+      useTexture: gl.getUniformLocation(this.drawProgram, 'u_useTexture'),
+      texture: gl.getUniformLocation(this.drawProgram, 'u_texture'),
+    };
+    this.copyLocations = {
+      position: gl.getAttribLocation(this.copyProgram, 'a_position'),
+      texture: gl.getUniformLocation(this.copyProgram, 'u_texture'),
+    };
+    this.quadData = new Float32Array(24);
 
     this.frontTexture = this.createTexture();
     this.backTexture = this.createTexture();
@@ -132,7 +147,21 @@ export class WebGlFramebufferCanvas {
     gl.viewport(0, 0, this.width, this.height);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    this.initDrawBuffer();
+    this.initCopyBuffer();
     this.present();
+  }
+
+  initDrawBuffer() {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.drawBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, this.quadData.byteLength, gl.DYNAMIC_DRAW);
+  }
+
+  initCopyBuffer() {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.copyBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, FULLSCREEN_QUAD, gl.STATIC_DRAW);
   }
 
   createTexture() {
@@ -167,31 +196,46 @@ export class WebGlFramebufferCanvas {
     const x2 = x + width;
     const y2 = y + height;
     const [u1, v1, u2, v2] = uv;
-    const data = new Float32Array([
-      x, y, u1, v1,
-      x2, y, u2, v1,
-      x, y2, u1, v2,
-      x, y2, u1, v2,
-      x2, y, u2, v1,
-      x2, y2, u2, v2,
-    ]);
+    const data = this.quadData;
+    data[0] = x;
+    data[1] = y;
+    data[2] = u1;
+    data[3] = v1;
+    data[4] = x2;
+    data[5] = y;
+    data[6] = u2;
+    data[7] = v1;
+    data[8] = x;
+    data[9] = y2;
+    data[10] = u1;
+    data[11] = v2;
+    data[12] = x;
+    data[13] = y2;
+    data[14] = u1;
+    data[15] = v2;
+    data[16] = x2;
+    data[17] = y;
+    data[18] = u2;
+    data[19] = v1;
+    data[20] = x2;
+    data[21] = y2;
+    data[22] = u2;
+    data[23] = v2;
     this.bindFrontTarget();
     gl.useProgram(this.drawProgram);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.drawBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STREAM_DRAW);
-    const position = gl.getAttribLocation(this.drawProgram, 'a_position');
-    const uvLocation = gl.getAttribLocation(this.drawProgram, 'a_uv');
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(uvLocation);
-    gl.vertexAttribPointer(uvLocation, 2, gl.FLOAT, false, 16, 8);
-    gl.uniform2f(gl.getUniformLocation(this.drawProgram, 'u_resolution'), this.width, this.height);
-    gl.uniform4fv(gl.getUniformLocation(this.drawProgram, 'u_color'), color);
-    gl.uniform1f(gl.getUniformLocation(this.drawProgram, 'u_useTexture'), useTexture ? 1 : 0);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
+    gl.enableVertexAttribArray(this.drawLocations.position);
+    gl.vertexAttribPointer(this.drawLocations.position, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(this.drawLocations.uv);
+    gl.vertexAttribPointer(this.drawLocations.uv, 2, gl.FLOAT, false, 16, 8);
+    gl.uniform2f(this.drawLocations.resolution, this.width, this.height);
+    gl.uniform4fv(this.drawLocations.color, color);
+    gl.uniform1f(this.drawLocations.useTexture, useTexture ? 1 : 0);
     if (texture) {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.uniform1i(gl.getUniformLocation(this.drawProgram, 'u_texture'), 0);
+      gl.uniform1i(this.drawLocations.texture, 0);
     } else {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, null);
@@ -250,13 +294,11 @@ export class WebGlFramebufferCanvas {
     gl.viewport(0, 0, this.width, this.height);
     gl.useProgram(this.copyProgram);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.copyBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STREAM_DRAW);
-    const position = gl.getAttribLocation(this.copyProgram, 'a_position');
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.copyLocations.position);
+    gl.vertexAttribPointer(this.copyLocations.position, 2, gl.FLOAT, false, 0, 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.frontTexture);
-    gl.uniform1i(gl.getUniformLocation(this.copyProgram, 'u_texture'), 0);
+    gl.uniform1i(this.copyLocations.texture, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 }
