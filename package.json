@@ -1,10 +1,11 @@
 {
+  "name": "elegg.jp-retro-crt",
+  "private": true,
+  "packageManager": "pnpm@10.24.0",
   "scripts": {
-    "dev": "npx vite --host 127.0.0.1",
-    "update-fs": "node scripts/update-root-manifest.mjs"
-  },
-  "dependencies": {},
-  "devDependencies": {
-    "vite": "latest"
+    "dev": "pnpm --filter @elegg/site dev",
+    "build": "pnpm --filter @elegg/site build",
+    "preview": "pnpm --filter @elegg/site preview",
+    "update-fs": "pnpm --filter @elegg/site update-fs"
   }
 }

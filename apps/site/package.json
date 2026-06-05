@@ -1,0 +1,15 @@
+{
+  "name": "@elegg/site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "update-fs": "node scripts/update-root-manifest.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "vite": "latest"
+  }
+}
