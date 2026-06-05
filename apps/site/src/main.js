@@ -1,15 +1,14 @@
 import './style.css';
 import { CRT_CSS_IMAGE_ANTIALIAS, CrtRenderer } from './renderer.js';
 import { Terminal } from './terminal.js';
+import { WebGlFramebufferCanvas } from './webgl-framebuffer-canvas.js';
 
 const crtCanvas = document.querySelector('#crtCanvas');
 crtCanvas.classList.toggle('is-antialiased', CRT_CSS_IMAGE_ANTIALIAS);
-const lowCanvas = document.createElement('canvas');
-lowCanvas.width = 512;
-lowCanvas.height = 256;
+const lowCanvas = new WebGlFramebufferCanvas(512, 256);
 
 const terminal = new Terminal(lowCanvas);
-const renderer = new CrtRenderer(crtCanvas, lowCanvas);
+const renderer = new CrtRenderer(crtCanvas, lowCanvas.canvas);
 
 const controls = {
   curve: document.querySelector('#curve'),
@@ -96,6 +95,7 @@ terminal.boot();
 
 function frame(time) {
   terminal.render(time);
+  lowCanvas.present();
   renderer.render(time);
   requestAnimationFrame(frame);
 }
