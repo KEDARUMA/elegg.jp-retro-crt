@@ -28,6 +28,7 @@ for (const [key, element] of Object.entries(controls)) {
 
 controls.degauss.addEventListener('click', () => {
   renderer.kickSync(1.4);
+  renderer.kickVsyncDrift();
   terminal.write('\x1b[92m\r\nDEGAUSS COMPLETE\x1b[0m\r\n');
 });
 
@@ -79,6 +80,16 @@ window.addEventListener('paste', (event) => {
   }
   event.preventDefault();
   terminal.pasteText(text);
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    renderer.kickVsyncDrift();
+  }
+});
+
+window.addEventListener('resize', () => {
+  renderer.kickVsyncDrift();
 });
 
 terminal.boot();

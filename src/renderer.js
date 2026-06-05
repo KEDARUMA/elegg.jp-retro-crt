@@ -18,6 +18,10 @@ uniform float u_curve;
 uniform float u_bleed;
 uniform float u_sync;
 uniform float u_burst;
+uniform float u_vsyncOffset;
+uniform float u_vsyncSnap;
+uniform float u_vsyncSnapStretch;
+uniform float u_vsyncSnapBrightness;
 varying vec2 v_uv;
 
 float hash(vec2 p) {
@@ -34,6 +38,8 @@ vec2 curveUv(vec2 uv) {
 
 void main() {
   vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
+  uv.y = fract(uv.y + u_vsyncOffset);
+  uv.y = 0.5 + (uv.y - 0.5) * (1.0 + u_vsyncSnap * u_vsyncSnapStretch);
 
   float line = floor(uv.y * 256.0);
   float jitter = (hash(vec2(line, floor(u_time * 18.0))) - 0.5) * 0.0018 * u_sync;
@@ -75,6 +81,7 @@ void main() {
   color *= mask * scan * (0.48 + vignette * 0.72) * flicker;
   color += noise;
   color += u_burst * vec3(0.06, 0.11, 0.08);
+  color += u_vsyncSnap * u_vsyncSnapBrightness * vec3(0.69, 1.0, 0.75);
 
   gl_FragColor = vec4(pow(max(color, 0.0), vec3(0.92)), 1.0);
 }
@@ -90,6 +97,33 @@ export const CRT_TEXTURE_ANTIALIAS = true;
 // 作成後は切り替えできないため、変更後はリロードが必要。
 export const CRT_WEBGL_ANTIALIAS = true;
 
+// V-Syncズレが通常位置へ戻るまでの時間。
+export const CRT_VSYNC_DRIFT_DURATION_MS = 1000;
+// 発生直後の縦方向UVズレ量。1.0に近いほど画面下端から始まる。
+export const CRT_VSYNC_DRIFT_START_OFFSET = 0.98;
+// 通常フレームでV-Syncズレが自然発生する基本確率。
+export const CRT_VSYNC_DRIFT_RANDOM_CHANCE = 0.0009;
+// 自然発生時のズレ強度。
+export const CRT_VSYNC_DRIFT_RANDOM_AMOUNT = 0.72;
+// 明示発火時のズレ強度。
+export const CRT_VSYNC_DRIFT_TRIGGER_AMOUNT = 1.0;
+// 復帰時に通常位置を通り過ぎる量。
+export const CRT_VSYNC_DRIFT_OVERSHOOT = 1.75;
+// この進行率を超えたら瞬間的に通常位置へ同期する。
+export const CRT_VSYNC_DRIFT_SNAP_PROGRESS = 0.86;
+// スナップ同期時の伸びと発光が続く時間。
+export const CRT_VSYNC_SNAP_FLASH_DURATION_MS = 120;
+// スナップ同期時の縦方向の伸び量。
+export const CRT_VSYNC_SNAP_STRETCH = 0.08;
+// スナップ同期時の明るさ。
+export const CRT_VSYNC_SNAP_BRIGHTNESS = 0.1;
+
+function easeOutBack(value) {
+  const c1 = CRT_VSYNC_DRIFT_OVERSHOOT;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(value - 1, 3) + c1 * Math.pow(value - 1, 2);
+}
+
 export class CrtRenderer {
   constructor(canvas, sourceCanvas) {
     this.canvas = canvas;
@@ -100,6 +134,9 @@ export class CrtRenderer {
       sync: 0.5,
     };
     this.burst = 0;
+    this.vsyncDriftStartMs = 0;
+    this.vsyncDriftAmount = 0;
+    this.vsyncSnapStartMs = 0;
     this.gl = canvas.getContext('webgl', {
       alpha: false,
       antialias: CRT_WEBGL_ANTIALIAS,
@@ -126,6 +163,10 @@ export class CrtRenderer {
       bleed: gl.getUniformLocation(program, 'u_bleed'),
       sync: gl.getUniformLocation(program, 'u_sync'),
       burst: gl.getUniformLocation(program, 'u_burst'),
+      vsyncOffset: gl.getUniformLocation(program, 'u_vsyncOffset'),
+      vsyncSnap: gl.getUniformLocation(program, 'u_vsyncSnap'),
+      vsyncSnapStretch: gl.getUniformLocation(program, 'u_vsyncSnapStretch'),
+      vsyncSnapBrightness: gl.getUniformLocation(program, 'u_vsyncSnapBrightness'),
     };
 
     this.buffer = gl.createBuffer();
@@ -145,13 +186,60 @@ export class CrtRenderer {
     this.burst = Math.max(this.burst, amount);
   }
 
+  kickVsyncDrift(amount = CRT_VSYNC_DRIFT_TRIGGER_AMOUNT) {
+    this.vsyncDriftStartMs = performance.now();
+    this.vsyncDriftAmount = Math.max(this.vsyncDriftAmount, amount);
+    this.kickSync(0.9);
+  }
+
+  kickVsyncSnap() {
+    this.vsyncSnapStartMs = performance.now();
+  }
+
+  getVsyncOffset(timeMs) {
+    if (this.vsyncDriftAmount <= 0) {
+      return 0;
+    }
+    const elapsed = timeMs - this.vsyncDriftStartMs;
+    const progress = Math.min(1, Math.max(0, elapsed / CRT_VSYNC_DRIFT_DURATION_MS));
+    if (progress >= CRT_VSYNC_DRIFT_SNAP_PROGRESS) {
+      this.vsyncDriftAmount = 0;
+      this.kickVsyncSnap();
+      return 0;
+    }
+    const offset = CRT_VSYNC_DRIFT_START_OFFSET * this.vsyncDriftAmount * (1 - easeOutBack(progress));
+    if (progress >= 1) {
+      this.vsyncDriftAmount = 0;
+      return 0;
+    }
+    return offset;
+  }
+
+  getVsyncSnap(timeMs) {
+    if (this.vsyncSnapStartMs <= 0) {
+      return 0;
+    }
+    const elapsed = timeMs - this.vsyncSnapStartMs;
+    const progress = Math.min(1, Math.max(0, elapsed / CRT_VSYNC_SNAP_FLASH_DURATION_MS));
+    if (progress >= 1) {
+      this.vsyncSnapStartMs = 0;
+      return 0;
+    }
+    return 1 - progress;
+  }
+
   render(timeMs) {
     const gl = this.gl;
     const time = timeMs * 0.001;
     if (Math.random() < 0.006 * this.settings.sync) {
       this.kickSync(0.75);
     }
+    if (Math.random() < CRT_VSYNC_DRIFT_RANDOM_CHANCE * this.settings.sync) {
+      this.kickVsyncDrift(CRT_VSYNC_DRIFT_RANDOM_AMOUNT);
+    }
     this.burst *= 0.94;
+    const vsyncOffset = this.getVsyncOffset(timeMs);
+    const vsyncSnap = this.getVsyncSnap(timeMs);
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.useProgram(this.program);
@@ -169,6 +257,10 @@ export class CrtRenderer {
     gl.uniform1f(this.locations.bleed, this.settings.bleed);
     gl.uniform1f(this.locations.sync, this.settings.sync);
     gl.uniform1f(this.locations.burst, this.burst);
+    gl.uniform1f(this.locations.vsyncOffset, vsyncOffset);
+    gl.uniform1f(this.locations.vsyncSnap, vsyncSnap);
+    gl.uniform1f(this.locations.vsyncSnapStretch, CRT_VSYNC_SNAP_STRETCH);
+    gl.uniform1f(this.locations.vsyncSnapBrightness, CRT_VSYNC_SNAP_BRIGHTNESS);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 }
