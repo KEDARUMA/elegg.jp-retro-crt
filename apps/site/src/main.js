@@ -1,35 +1,47 @@
 import './style.css';
 import { CRT_CSS_IMAGE_ANTIALIAS, CrtRenderer } from './renderer.js';
-import { Terminal } from './terminal.js';
+import { CELL_H, CELL_W, Terminal } from './terminal.js';
 import { WebGlFramebufferCanvas } from './webgl-framebuffer-canvas.js';
 
 const crtCanvas = document.querySelector('#crtCanvas');
+const screenWrap = document.querySelector('.screen-wrap');
+const TERMINAL_DISPLAY_SCALE = 3;
 crtCanvas.classList.toggle('is-antialiased', CRT_CSS_IMAGE_ANTIALIAS);
-const lowCanvas = new WebGlFramebufferCanvas(512, 256);
+const initialGrid = getTerminalGrid();
+crtCanvas.width = initialGrid.width;
+crtCanvas.height = initialGrid.height;
+const lowCanvas = new WebGlFramebufferCanvas(initialGrid.width, initialGrid.height);
 
-const terminal = new Terminal(lowCanvas);
+const terminal = new Terminal(lowCanvas, { cols: initialGrid.cols, rows: initialGrid.rows });
 const renderer = new CrtRenderer(crtCanvas, lowCanvas.canvas);
 
-const controls = {
-  curve: document.querySelector('#curve'),
-  bleed: document.querySelector('#bleed'),
-  sync: document.querySelector('#sync'),
-  degauss: document.querySelector('#degauss'),
-};
-
-for (const [key, element] of Object.entries(controls)) {
-  if (element instanceof HTMLInputElement) {
-    element.addEventListener('input', () => {
-      renderer.settings[key] = Number(element.value);
-    });
-  }
+function getTerminalGrid() {
+  const rect = screenWrap.getBoundingClientRect();
+  const sourceWidth = rect.width || crtCanvas.clientWidth || crtCanvas.width;
+  const sourceHeight = rect.height || crtCanvas.clientHeight || crtCanvas.height;
+  const cols = Math.max(1, Math.floor(sourceWidth / (CELL_W * TERMINAL_DISPLAY_SCALE)));
+  const rows = Math.max(1, Math.floor(sourceHeight / (CELL_H * TERMINAL_DISPLAY_SCALE)));
+  return {
+    cols,
+    rows,
+    width: cols * CELL_W,
+    height: rows * CELL_H,
+  };
 }
 
-controls.degauss.addEventListener('click', () => {
-  renderer.kickSync(1.4);
+function syncTerminalGrid() {
+  const grid = getTerminalGrid();
+  if (grid.width === lowCanvas.width && grid.height === lowCanvas.height) {
+    return;
+  }
+  crtCanvas.width = grid.width;
+  crtCanvas.height = grid.height;
+  lowCanvas.resize(grid.width, grid.height);
+  terminal.resize(grid.cols, grid.rows);
   renderer.kickVsyncDrift();
-  terminal.write('\x1b[92m\r\nDEGAUSS COMPLETE\x1b[0m\r\n');
-});
+}
+
+new ResizeObserver(syncTerminalGrid).observe(screenWrap);
 
 function getTerminalPoint(event) {
   const rect = crtCanvas.getBoundingClientRect();
@@ -88,6 +100,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('resize', () => {
+  syncTerminalGrid();
   renderer.kickVsyncDrift();
 });
 

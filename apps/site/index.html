@@ -10,28 +10,10 @@
   <body>
     <main class="desk">
       <section class="crt-shell" aria-label="Retro CRT terminal">
-        <div class="bezel">
-          <div class="screen-wrap">
-            <canvas id="crtCanvas" width="512" height="256"></canvas>
-            <div class="glass"></div>
-          </div>
+        <div class="screen-wrap">
+          <canvas id="crtCanvas" width="512" height="256"></canvas>
+          <div class="glass"></div>
         </div>
-        <aside class="controls">
-          <div class="brand">ELEGG 5150</div>
-          <label>
-            <span>CURVE</span>
-            <input id="curve" type="range" min="0" max="1" step="0.01" value="0.42" />
-          </label>
-          <label>
-            <span>BLEED</span>
-            <input id="bleed" type="range" min="0" max="1" step="0.01" value="0.55" />
-          </label>
-          <label>
-            <span>SYNC</span>
-            <input id="sync" type="range" min="0" max="1" step="0.01" value="0.5" />
-          </label>
-          <button id="degauss" type="button">DEGAUSS</button>
-        </aside>
       </section>
     </main>
   </body>

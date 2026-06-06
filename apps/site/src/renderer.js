@@ -13,6 +13,7 @@ precision highp float;
 
 uniform sampler2D u_texture;
 uniform vec2 u_texel;
+uniform vec2 u_sourceSize;
 uniform float u_time;
 uniform float u_curve;
 uniform float u_bleed;
@@ -41,7 +42,7 @@ void main() {
   uv.y = fract(uv.y + u_vsyncOffset);
   uv.y = 0.5 + (uv.y - 0.5) * (1.0 + u_vsyncSnap * u_vsyncSnapStretch);
 
-  float line = floor(uv.y * 256.0);
+  float line = floor(uv.y * u_sourceSize.y);
   float jitter = (hash(vec2(line, floor(u_time * 18.0))) - 0.5) * 0.0018 * u_sync;
   float tear = smoothstep(0.985, 1.0, hash(vec2(floor(u_time * 3.0), line * 0.013)));
   float tearBand = smoothstep(0.0, 0.025, abs(uv.y - hash(vec2(floor(u_time * 1.7), 2.0))));
@@ -71,11 +72,11 @@ void main() {
   ) * 0.25;
   color = mix(color, glow, 0.16 + u_bleed * 0.2);
 
-  float sub = mod(floor(v_uv.y * 256.0), 3.0);
+  float sub = mod(floor(v_uv.y * u_sourceSize.y), 3.0);
   vec3 mask = sub < 1.0 ? vec3(1.0, 0.58, 0.58) : (sub < 2.0 ? vec3(0.58, 1.0, 0.58) : vec3(0.58, 0.58, 1.0));
-  float scan = 0.58 + 0.42 * smoothstep(0.16, 0.86, fract(v_uv.y * 256.0));
+  float scan = 0.58 + 0.42 * smoothstep(0.16, 0.86, fract(v_uv.y * u_sourceSize.y));
   float vignette = smoothstep(0.88, 0.22, length(v_uv - 0.5));
-  float noise = (hash(v_uv * 512.0 + u_time) - 0.5) * 0.035;
+  float noise = (hash(v_uv * u_sourceSize.x + u_time) - 0.5) * 0.035;
   float flicker = 0.94 + 0.06 * sin(u_time * 61.0);
 
   color *= mask * scan * (0.48 + vignette * 0.72) * flicker;
@@ -137,6 +138,7 @@ export class CrtRenderer {
     this.vsyncDriftStartMs = 0;
     this.vsyncDriftAmount = 0;
     this.vsyncSnapStartMs = 0;
+    this.uploadedSourceVersion = null;
     this.gl = canvas.getContext('webgl', {
       alpha: false,
       antialias: CRT_WEBGL_ANTIALIAS,
@@ -158,6 +160,7 @@ export class CrtRenderer {
       position: gl.getAttribLocation(program, 'a_position'),
       texture: gl.getUniformLocation(program, 'u_texture'),
       texel: gl.getUniformLocation(program, 'u_texel'),
+      sourceSize: gl.getUniformLocation(program, 'u_sourceSize'),
       time: gl.getUniformLocation(program, 'u_time'),
       curve: gl.getUniformLocation(program, 'u_curve'),
       bleed: gl.getUniformLocation(program, 'u_bleed'),
@@ -246,12 +249,17 @@ export class CrtRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.sourceCanvas);
+    const sourceVersion = this.sourceCanvas.__framebufferVersion;
+    if (sourceVersion === undefined || sourceVersion !== this.uploadedSourceVersion) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.sourceCanvas);
+      this.uploadedSourceVersion = sourceVersion;
+    }
 
     gl.enableVertexAttribArray(this.locations.position);
     gl.vertexAttribPointer(this.locations.position, 2, gl.FLOAT, false, 0, 0);
     gl.uniform1i(this.locations.texture, 0);
-    gl.uniform2f(this.locations.texel, 1 / 512, 1 / 256);
+    gl.uniform2f(this.locations.texel, 1 / this.sourceCanvas.width, 1 / this.sourceCanvas.height);
+    gl.uniform2f(this.locations.sourceSize, this.sourceCanvas.width, this.sourceCanvas.height);
     gl.uniform1f(this.locations.time, time);
     gl.uniform1f(this.locations.curve, this.settings.curve);
     gl.uniform1f(this.locations.bleed, this.settings.bleed);

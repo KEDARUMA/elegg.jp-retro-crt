@@ -1,7 +1,7 @@
-const COLS = 64;
-const ROWS = 16;
-const CELL_W = 8;
-const CELL_H = 16;
+const DEFAULT_COLS = 64;
+const DEFAULT_ROWS = 16;
+export const CELL_W = 8;
+export const CELL_H = 16;
 // 同時に発光アニメーションできる文字数。
 const MAX_GLYPH_TASKS = 14;
 // 白い矩形から文字画像へ到達するまでのフレーム数。
@@ -39,7 +39,20 @@ const PALETTE = [
 ];
 
 function isFullWidth(char) {
-  return /[^\u0000-\u00ff]/.test(char);
+  const codePoint = char.codePointAt(0);
+  return (
+    codePoint === 0x3000 ||
+    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+    (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+    (codePoint >= 0xff01 && codePoint <= 0xff60) ||
+    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+    (codePoint >= 0x1f000 && codePoint <= 0x1faff && (codePoint < 0x1fb00 || codePoint > 0x1fbff)) ||
+    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+  );
 }
 
 function isBlankChar(char) {
@@ -60,8 +73,8 @@ function freshCell() {
   };
 }
 
-function freshRow() {
-  return Array.from({ length: COLS }, freshCell);
+function freshRow(cols) {
+  return Array.from({ length: cols }, freshCell);
 }
 
 function imageCell(imageData) {
@@ -212,10 +225,12 @@ class GlyphTask {
 }
 
 export class Terminal {
-  constructor(canvas) {
+  constructor(canvas, { cols = DEFAULT_COLS, rows = DEFAULT_ROWS } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
-    this.cells = Array.from({ length: ROWS }, freshRow);
+    this.cols = cols;
+    this.rows = rows;
+    this.cells = Array.from({ length: this.rows }, () => freshRow(this.cols));
     this.scrollbackRows = [];
     this.scrollbackOffset = 0;
     this.cursorX = 0;
@@ -239,10 +254,52 @@ export class Terminal {
     this.mdsBrowserActive = false;
   }
 
+  resize(cols, rows) {
+    if (cols === this.cols && rows === this.rows) {
+      return;
+    }
+
+    this.setHoverRange(null);
+    this.cols = cols;
+    this.rows = rows;
+    this.cells = this.resizeRows(this.cells, rows, cols);
+    this.scrollbackRows = this.scrollbackRows.map((row) => this.resizeRow(row, cols));
+    this.scrollbackOffset = Math.max(0, Math.min(this.scrollbackRows.length, this.scrollbackOffset));
+    this.cursorX = Math.max(0, Math.min(this.cols - 1, this.cursorX));
+    this.cursorY = Math.max(0, Math.min(this.rows - 1, this.cursorY));
+    this.activeGlyphTasks = [];
+    this.waitingGlyphTasks = [];
+    this.activeImageTasks = [];
+    this.waitingImageTasks = [];
+    this.waitingImageRows = [];
+    this.repaintViewport();
+  }
+
+  resizeRows(rows, nextRows, nextCols) {
+    const resized = rows.slice(-nextRows).map((row) => this.resizeRow(row, nextCols));
+    while (resized.length < nextRows) {
+      resized.unshift(freshRow(nextCols));
+    }
+    return resized;
+  }
+
+  resizeRow(row, nextCols) {
+    const resized = row.slice(0, nextCols);
+    const last = resized[resized.length - 1];
+    if (last?.wideTail || isFullWidth(last?.ch || '')) {
+      resized[resized.length - 1] = freshCell();
+    }
+    while (resized.length < nextCols) {
+      resized.push(freshCell());
+    }
+    return resized;
+  }
+
   async boot() {
     this.clear();
     this.write('\x1b[92mIBM-PC COMPATIBLE CRT BIOS v0.86\x1b[0m\r\n');
     this.write('MEMORY TEST: 640K OK\r\n');
+    this.write(`GEOMETRY: ${this.cols} COLS x ${this.rows} ROWS (${this.canvas.width}x${this.canvas.height})\r\n`);
     this.write('MOUNTING / FROM public/root ...\r\n');
     try {
       await this.loadFileSystem();
@@ -265,11 +322,11 @@ export class Terminal {
       return;
     }
     if (event.key === 'PageUp') {
-      this.scrollBack(ROWS);
+      this.scrollBack(this.rows);
       return;
     }
     if (event.key === 'PageDown') {
-      this.scrollBack(-ROWS);
+      this.scrollBack(-this.rows);
       return;
     }
     if (this.mdsBrowserActive) {
@@ -334,8 +391,8 @@ export class Terminal {
   }
 
   async handlePointer(x, y) {
-    const col = Math.max(0, Math.min(COLS - 1, Math.floor(x / CELL_W)));
-    const row = Math.max(0, Math.min(ROWS - 1, Math.floor(y / CELL_H)));
+    const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL_W)));
+    const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL_H)));
     const link = this.getVisibleRows()[row]?.[col]?.link;
     if (!link) {
       return false;
@@ -345,8 +402,8 @@ export class Terminal {
   }
 
   handlePointerMove(x, y) {
-    const col = Math.max(0, Math.min(COLS - 1, Math.floor(x / CELL_W)));
-    const row = Math.max(0, Math.min(ROWS - 1, Math.floor(y / CELL_H)));
+    const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL_W)));
+    const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL_H)));
     const range = this.getLinkRange(row, col);
     this.setHoverRange(range);
     return Boolean(range);
@@ -391,7 +448,7 @@ export class Terminal {
     while (start > 0 && rows[row][start - 1].link === link) {
       start -= 1;
     }
-    while (end < COLS - 1 && rows[row][end + 1].link === link) {
+    while (end < this.cols - 1 && rows[row][end + 1].link === link) {
       end += 1;
     }
     return { row, start, end, link };
@@ -509,7 +566,7 @@ export class Terminal {
     }
     if (name === 'about') {
       this.write('\x1b[92mElegg Retro CRT\x1b[0m\r\n');
-      this.write('512x256 offscreen terminal with phosphor drift.\r\n');
+      this.write(`${this.cols}x${this.rows} cells, 8x16 font with phosphor drift.\r\n`);
       this.write('日本語は全角セルで表示します。\r\n');
       return;
     }
@@ -943,8 +1000,8 @@ export class Terminal {
   }
 
   clear() {
-    for (let y = 0; y < ROWS; y += 1) {
-      for (let x = 0; x < COLS; x += 1) {
+    for (let y = 0; y < this.rows; y += 1) {
+      for (let x = 0; x < this.cols; x += 1) {
         this.cells[y][x] = freshCell();
       }
     }
@@ -967,8 +1024,8 @@ export class Terminal {
   }
 
   clearMdsScreen() {
-    for (let y = 0; y < ROWS; y += 1) {
-      for (let x = 0; x < COLS; x += 1) {
+    for (let y = 0; y < this.rows; y += 1) {
+      for (let x = 0; x < this.cols; x += 1) {
         this.cells[y][x] = freshCell();
       }
     }
@@ -1113,8 +1170,8 @@ export class Terminal {
     }
     if (finalChar === 'H' || finalChar === 'f') {
       const [row = '1', col = '1'] = payload.split(';');
-      this.cursorY = Math.max(0, Math.min(ROWS - 1, Number(row) - 1));
-      this.cursorX = Math.max(0, Math.min(COLS - 1, Number(col) - 1));
+      this.cursorY = Math.max(0, Math.min(this.rows - 1, Number(row) - 1));
+      this.cursorX = Math.max(0, Math.min(this.cols - 1, Number(col) - 1));
     }
   }
 
@@ -1128,7 +1185,7 @@ export class Terminal {
       return true;
     }
     const width = isFullWidth(char) ? 2 : 1;
-    if (this.cursorX + width > COLS) {
+    if (this.cursorX + width > this.cols) {
       this.newLine();
     }
     const cell = {
@@ -1154,12 +1211,12 @@ export class Terminal {
         underline: cell.underline,
       });
     }
-    if (width === 2 && this.cursorX + 1 < COLS) {
+    if (width === 2 && this.cursorX + 1 < this.cols) {
       this.cells[this.cursorY][this.cursorX + 1] = { ...cell, ch: '', wideTail: true };
     }
     this.markAutoLinksForRow(this.cursorY);
     this.cursorX += width;
-    if (this.cursorX >= COLS) {
+    if (this.cursorX >= this.cols) {
       this.newLine();
     }
   }
@@ -1186,7 +1243,7 @@ export class Terminal {
     }
     for (const match of line.matchAll(/https?:\/\/[^\s)]+/g)) {
       const target = match[0];
-      for (let x = match.index; x < match.index + target.length && x < COLS; x += 1) {
+      for (let x = match.index; x < match.index + target.length && x < this.cols; x += 1) {
         if (!cells[x].link) {
           cells[x].link = target;
           cells[x].linkAuto = true;
@@ -1226,11 +1283,11 @@ export class Terminal {
 
   getVisibleRows() {
     const rows = [...this.scrollbackRows, ...this.cells];
-    const end = Math.max(ROWS, rows.length - this.scrollbackOffset);
-    const start = Math.max(0, end - ROWS);
+    const end = Math.max(this.rows, rows.length - this.scrollbackOffset);
+    const start = Math.max(0, end - this.rows);
     const visible = rows.slice(start, end);
-    while (visible.length < ROWS) {
-      visible.unshift(freshRow());
+    while (visible.length < this.rows) {
+      visible.unshift(freshRow(this.cols));
     }
     return visible;
   }
@@ -1239,8 +1296,8 @@ export class Terminal {
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const rows = this.getVisibleRows();
-    for (let y = 0; y < ROWS; y += 1) {
-      for (let x = 0; x < COLS; x += 1) {
+    for (let y = 0; y < this.rows; y += 1) {
+      for (let x = 0; x < this.cols; x += 1) {
         const cell = rows[y][x];
         if (!cell || cell.wideTail) {
           continue;
@@ -1256,7 +1313,7 @@ export class Terminal {
 
   newLine() {
     this.cursorX = 0;
-    if (this.cursorY < ROWS - 1) {
+    if (this.cursorY < this.rows - 1) {
       this.cursorY += 1;
       return;
     }
@@ -1321,7 +1378,7 @@ export class Terminal {
     const destY = this.cursorY * CELL_H;
     for (const block of blocks) {
       const cellX = Math.floor(block.x / CELL_W);
-      if (cellX >= 0 && cellX < COLS) {
+      if (cellX >= 0 && cellX < this.cols) {
         this.cells[this.cursorY][cellX] = imageCell(block.target);
       }
       this.waitingImageTasks.push(
@@ -1337,7 +1394,7 @@ export class Terminal {
 
   moveToNextImageLine() {
     this.cursorX = 0;
-    if (this.cursorY >= ROWS - 1) {
+    if (this.cursorY >= this.rows - 1) {
       this.scrollUp();
       return;
     }
@@ -1354,8 +1411,8 @@ export class Terminal {
 
   scrollUp() {
     this.pushScrollbackRow(this.cells.shift());
-    this.cells.push(freshRow());
-    this.cursorY = ROWS - 1;
+    this.cells.push(freshRow(this.cols));
+    this.cursorY = this.rows - 1;
     this.scrollFramebuffer();
   }
 

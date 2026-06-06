@@ -92,6 +92,8 @@ export class WebGlFramebufferCanvas {
     this.canvas.height = height;
     this.width = width;
     this.height = height;
+    this.version = 0;
+    this.canvas.__framebufferVersion = this.version;
     this.fillStyle = '#000000';
 
     this.stagingCanvas = document.createElement('canvas');
@@ -184,6 +186,30 @@ export class WebGlFramebufferCanvas {
     return framebuffer;
   }
 
+  markDirty() {
+    this.version += 1;
+    this.canvas.__framebufferVersion = this.version;
+  }
+
+  resize(width, height) {
+    if (width === this.width && height === this.height) {
+      return;
+    }
+    this.width = width;
+    this.height = height;
+    this.canvas.width = width;
+    this.canvas.height = height;
+    for (const texture of [this.frontTexture, this.backTexture]) {
+      this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+      this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+    }
+    this.bindFrontTarget();
+    this.gl.clearColor(0, 0, 0, 1);
+    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+    this.markDirty();
+    this.present();
+  }
+
   bindFrontTarget() {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.frontFramebuffer);
@@ -241,6 +267,7 @@ export class WebGlFramebufferCanvas {
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    this.markDirty();
   }
 
   fillRect(x, y, width, height) {
