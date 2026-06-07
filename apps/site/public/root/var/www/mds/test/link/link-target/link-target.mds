@@ -1,0 +1,9 @@
+<clear><color="white">MDS LINK TARGET
+
+Page navigation target.
+
+This file is opened from:
+<a href="vfs:/var/www/mds/test/link/link.mds">Back to Link Test</a>
+
+Command check:
+<a href="cmd:echo 'Link target command OK'">Run Target Echo</a>

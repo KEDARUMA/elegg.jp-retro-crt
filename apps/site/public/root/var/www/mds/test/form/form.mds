@@ -1,0 +1,22 @@
+<clear>
+
+MDS FORM TEST
+
+Textarea:
+<textarea name="message" rows="4" placeholder="Message"></textarea>
+
+Text field:
+<textarea name="title" rows="1" placeholder="Title"></textarea>
+
+Checkbox:
+<checkbox name="agree" label="Agree" checked="false">
+
+Radio:
+<radio name="plan" value="basic" label="Basic" checked="true">
+<radio name="plan" value="pro" label="Pro">
+
+Combo box:
+<select name="country" placeholder="Country">
+  <option value="jp" label="Japan">
+  <option value="us" label="United States">
+</select>

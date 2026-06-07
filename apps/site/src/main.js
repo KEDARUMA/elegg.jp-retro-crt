@@ -5,26 +5,47 @@ import { WebGlFramebufferCanvas } from './webgl-framebuffer-canvas.js';
 
 const crtCanvas = document.querySelector('#crtCanvas');
 const screenWrap = document.querySelector('.screen-wrap');
-const TERMINAL_DISPLAY_SCALE = 3;
+const TERMINAL_COLS = 80;
+const params = new URLSearchParams(window.location.search);
+const testMode = params.get('test') === '1';
+const startupMdsPath = params.get('mds') || '';
+const startupVfsPath = params.get('vfs') || '';
 crtCanvas.classList.toggle('is-antialiased', CRT_CSS_IMAGE_ANTIALIAS);
+screenWrap.classList.toggle('is-test-mode', testMode);
 const initialGrid = getTerminalGrid();
 crtCanvas.width = initialGrid.width;
 crtCanvas.height = initialGrid.height;
 const lowCanvas = new WebGlFramebufferCanvas(initialGrid.width, initialGrid.height);
+lowCanvas.canvas.className = 'test-canvas';
+if (testMode) {
+  screenWrap.append(lowCanvas.canvas);
+  crtCanvas.hidden = true;
+  document.querySelector('.glass')?.setAttribute('hidden', '');
+}
 
-const terminal = new Terminal(lowCanvas, { cols: initialGrid.cols, rows: initialGrid.rows });
-const renderer = new CrtRenderer(crtCanvas, lowCanvas.canvas);
+const terminal = new Terminal(lowCanvas, { cols: initialGrid.cols, rows: initialGrid.rows, startupMdsPath, startupVfsPath, testMode });
+const renderer = testMode ? null : new CrtRenderer(crtCanvas, lowCanvas.canvas);
+const pointerCanvas = testMode ? lowCanvas.canvas : crtCanvas;
 
 function getTerminalGrid() {
+  if (testMode) {
+    return {
+      cols: TERMINAL_COLS,
+      rows: 40,
+      width: TERMINAL_COLS * CELL_W,
+      height: 40 * CELL_H,
+    };
+  }
   const rect = screenWrap.getBoundingClientRect();
-  const sourceWidth = rect.width || crtCanvas.clientWidth || crtCanvas.width;
+  const width = TERMINAL_COLS * CELL_W;
+  const sourceWidth = rect.width || crtCanvas.clientWidth || width;
   const sourceHeight = rect.height || crtCanvas.clientHeight || crtCanvas.height;
-  const cols = Math.max(1, Math.floor(sourceWidth / (CELL_W * TERMINAL_DISPLAY_SCALE)));
-  const rows = Math.max(1, Math.floor(sourceHeight / (CELL_H * TERMINAL_DISPLAY_SCALE)));
+  const displayScale = sourceWidth / width;
+  const rows = Math.max(1, Math.floor(sourceHeight / (CELL_H * displayScale)));
   return {
-    cols,
+    cols: TERMINAL_COLS,
     rows,
-    width: cols * CELL_W,
+    width,
     height: rows * CELL_H,
   };
 }
@@ -38,35 +59,35 @@ function syncTerminalGrid() {
   crtCanvas.height = grid.height;
   lowCanvas.resize(grid.width, grid.height);
   terminal.resize(grid.cols, grid.rows);
-  renderer.kickVsyncDrift();
+  renderer?.kickVsyncDrift();
 }
 
 new ResizeObserver(syncTerminalGrid).observe(screenWrap);
 
 function getTerminalPoint(event) {
-  const rect = crtCanvas.getBoundingClientRect();
+  const rect = pointerCanvas.getBoundingClientRect();
   return {
     x: ((event.clientX - rect.left) / rect.width) * lowCanvas.width,
     y: ((event.clientY - rect.top) / rect.height) * lowCanvas.height,
   };
 }
 
-crtCanvas.addEventListener('click', (event) => {
+pointerCanvas.addEventListener('click', (event) => {
   const { x, y } = getTerminalPoint(event);
   terminal.handlePointer(x, y);
 });
 
-crtCanvas.addEventListener('mousemove', (event) => {
+pointerCanvas.addEventListener('mousemove', (event) => {
   const { x, y } = getTerminalPoint(event);
-  crtCanvas.style.cursor = terminal.handlePointerMove(x, y) ? 'pointer' : '';
+  pointerCanvas.style.cursor = terminal.handlePointerMove(x, y) ? 'pointer' : '';
 });
 
-crtCanvas.addEventListener('mouseleave', () => {
+pointerCanvas.addEventListener('mouseleave', () => {
   terminal.handlePointerLeave();
-  crtCanvas.style.cursor = '';
+  pointerCanvas.style.cursor = '';
 });
 
-crtCanvas.addEventListener('wheel', (event) => {
+pointerCanvas.addEventListener('wheel', (event) => {
   event.preventDefault();
   terminal.handleWheel(event.deltaY);
 });
@@ -95,21 +116,34 @@ window.addEventListener('paste', (event) => {
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    renderer.kickVsyncDrift();
+    renderer?.kickVsyncDrift();
   }
 });
 
 window.addEventListener('resize', () => {
   syncTerminalGrid();
-  renderer.kickVsyncDrift();
+  renderer?.kickVsyncDrift();
 });
 
 terminal.boot();
 
+window.addEventListener('popstate', () => {
+  const nextParams = new URLSearchParams(window.location.search);
+  const nextMdsPath = nextParams.get('mds') || '';
+  const nextVfsPath = nextParams.get('vfs') || '';
+  if (nextVfsPath) {
+    terminal.openVfsPath(nextVfsPath);
+    return;
+  }
+  if (nextMdsPath) {
+    terminal.mdsBrowser([nextMdsPath]);
+  }
+});
+
 function frame(time) {
   terminal.render(time);
   lowCanvas.present();
-  renderer.render(time);
+  renderer?.render(time);
   requestAnimationFrame(frame);
 }
 

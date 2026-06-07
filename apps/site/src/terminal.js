@@ -38,6 +38,25 @@ const PALETTE = [
   '#fff8e6',
 ];
 
+const COLOR_NAMES = {
+  black: 0,
+  red: 9,
+  green: 10,
+  yellow: 11,
+  blue: 12,
+  magenta: 13,
+  cyan: 14,
+  white: 15,
+  gray: 8,
+  grey: 8,
+};
+
+const DEFAULT_TEXT_STATE = { fg: 10, bg: 0, bold: false, inverse: false, underline: false, strike: false };
+
+function freshTextState() {
+  return { ...DEFAULT_TEXT_STATE };
+}
+
 function isFullWidth(char) {
   const codePoint = char.codePointAt(0);
   return (
@@ -67,6 +86,7 @@ function freshCell() {
     bold: false,
     inverse: false,
     underline: false,
+    strike: false,
     link: null,
     linkAuto: false,
     wideTail: false,
@@ -77,14 +97,26 @@ function freshRow(cols) {
   return Array.from({ length: cols }, freshCell);
 }
 
-function imageCell(imageData) {
+function imageCell(imageData, link = null, offsetX = 0) {
   return {
     ...freshCell(),
     media: 'image-block',
     imageData,
     blockWidth: imageData.width,
     blockHeight: imageData.height,
+    offsetX,
+    link,
   };
+}
+
+function invertImageData(imageData) {
+  const inverted = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  for (let i = 0; i < inverted.data.length; i += 4) {
+    inverted.data[i] = 255 - inverted.data[i];
+    inverted.data[i + 1] = 255 - inverted.data[i + 1];
+    inverted.data[i + 2] = 255 - inverted.data[i + 2];
+  }
+  return inverted;
 }
 
 function dir(children) {
@@ -103,8 +135,8 @@ function hexToRgb(hex) {
   };
 }
 
-function isJpegPath(path) {
-  return /\.jpe?g$/i.test(path);
+function isImagePath(path) {
+  return /\.(?:jpe?g|png|gif|webp)$/i.test(path);
 }
 
 function makeWhiteImageData(width, height) {
@@ -127,22 +159,35 @@ function loadImage(url) {
   });
 }
 
-function makeGlyphTarget({ char, width, fg, bg, bold, inverse, underline }) {
-  const fgColor = hexToRgb(PALETTE[inverse ? bg : fg]);
-  const bgColor = hexToRgb(PALETTE[inverse ? fg : bg]);
+function resolveTextColor(value) {
+  if (typeof value === 'number') {
+    return PALETTE[value] || PALETTE[10];
+  }
+  if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)) {
+    return value;
+  }
+  return PALETTE[10];
+}
+
+function makeGlyphTarget({ char, width, fg, bg, bold, inverse, underline, strike }) {
+  const fgColor = hexToRgb(resolveTextColor(inverse ? bg : fg));
+  const bgColor = hexToRgb(resolveTextColor(inverse ? fg : bg));
   const maskCanvas = document.createElement('canvas');
   maskCanvas.width = width;
   maskCanvas.height = CELL_H;
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
   maskCtx.clearRect(0, 0, width, CELL_H);
   maskCtx.fillStyle = '#fff';
-  maskCtx.textBaseline = 'top';
+  maskCtx.textBaseline = 'alphabetic';
   maskCtx.font = `${bold ? 700 : 400} 16px ui-monospace, SFMono-Regular, Menlo, monospace`;
   if (char) {
-    maskCtx.fillText(char, 0, -1);
+    maskCtx.fillText(char, 0, 13);
   }
   if (underline) {
     maskCtx.fillRect(0, CELL_H - 3, width, 1);
+  }
+  if (strike) {
+    maskCtx.fillRect(0, Math.floor(CELL_H / 2), width, 1);
   }
   const mask = maskCtx.getImageData(0, 0, width, CELL_H).data;
   const target = new ImageData(width, CELL_H);
@@ -189,7 +234,7 @@ class ImageBlockTask {
 }
 
 class GlyphTask {
-  constructor({ x, y, char, fg, bg, bold, inverse, underline }) {
+  constructor({ x, y, char, fg, bg, bold, inverse, underline, strike }) {
     this.x = x;
     this.y = y;
     this.char = char;
@@ -198,11 +243,11 @@ class GlyphTask {
     this.step = 0;
     this.current = makeWhiteImageData(this.width, this.height);
     this.target = new ImageData(this.width, this.height);
-    this.prepare({ fg, bg, bold, inverse, underline });
+    this.prepare({ fg, bg, bold, inverse, underline, strike });
   }
 
-  prepare({ fg, bg, bold, inverse, underline }) {
-    this.target = makeGlyphTarget({ char: this.char, width: this.width, fg, bg, bold, inverse, underline });
+  prepare({ fg, bg, bold, inverse, underline, strike }) {
+    this.target = makeGlyphTarget({ char: this.char, width: this.width, fg, bg, bold, inverse, underline, strike });
   }
 
   tick(ctx) {
@@ -225,7 +270,7 @@ class GlyphTask {
 }
 
 export class Terminal {
-  constructor(canvas, { cols = DEFAULT_COLS, rows = DEFAULT_ROWS } = {}) {
+  constructor(canvas, { cols = DEFAULT_COLS, rows = DEFAULT_ROWS, startupMdsPath = '', startupVfsPath = '', testMode = false } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.cols = cols;
@@ -235,8 +280,9 @@ export class Terminal {
     this.scrollbackOffset = 0;
     this.cursorX = 0;
     this.cursorY = 0;
-    this.state = { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
+    this.state = freshTextState();
     this.stateStack = [];
+    this.colorStack = [];
     this.activeLink = null;
     this.command = '';
     this.lastCommand = '';
@@ -244,12 +290,19 @@ export class Terminal {
     this.cwd = '/home/guest';
     this.cursorVisible = true;
     this.ready = false;
+    this.startupMdsPath = startupMdsPath;
+    this.startupVfsPath = startupVfsPath;
+    this.currentMdsPath = '';
+    this.currentVfsPath = '';
+    this.testMode = testMode;
+    this.skipAnimations = testMode;
     this.activeGlyphTasks = [];
     this.waitingGlyphTasks = [];
     this.activeImageTasks = [];
     this.waitingImageTasks = [];
     this.waitingImageRows = [];
     this.outputQueue = [];
+    this.imageActionPending = false;
     this.hoverRange = null;
     this.mdsBrowserActive = false;
   }
@@ -307,7 +360,13 @@ export class Terminal {
       this.write('\x1b[36mANSI.SYS LOADED\x1b[0m\r\n');
       this.write('\x1b[36mROOTFS READY\x1b[0m\r\n\r\n');
       this.write('type \x1b[93mhelp\x1b[0m or \x1b[93mls -la\x1b[0m and press ENTER.\r\n\r\n');
-      await this.runStartupScript();
+      if (this.startupVfsPath) {
+        this.openVfsPath(this.startupVfsPath);
+      } else if (this.startupMdsPath) {
+        this.mdsBrowser([this.startupMdsPath]);
+      } else {
+        await this.runStartupScript();
+      }
     } catch (error) {
       this.write(`\x1b[91mROOTFS ERROR: ${error.message}\x1b[0m\r\n\r\n`);
     }
@@ -439,9 +498,13 @@ export class Terminal {
 
   getLinkRange(row, col) {
     const rows = this.getVisibleRows();
-    const link = rows[row]?.[col]?.link;
+    const cell = rows[row]?.[col];
+    const link = cell?.link;
     if (!link) {
       return null;
+    }
+    if (cell.media === 'image-block') {
+      return this.getImageLinkRange(rows, row, col, link);
     }
     let start = col;
     let end = col;
@@ -451,18 +514,44 @@ export class Terminal {
     while (end < this.cols - 1 && rows[row][end + 1].link === link) {
       end += 1;
     }
-    return { row, start, end, link };
+    return { type: 'text', row, start, end, link, key: `text:${row}:${start}:${end}:${link}` };
+  }
+
+  getImageLinkRange(rows, row, col, link) {
+    const seen = new Set();
+    const cells = [];
+    const queue = [{ x: col, y: row }];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      const key = `${current.x},${current.y}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const cell = rows[current.y]?.[current.x];
+      if (cell?.media !== 'image-block' || cell.link !== link) {
+        continue;
+      }
+      cells.push(current);
+      for (let y = current.y - 1; y <= current.y + 1; y += 1) {
+        for (let x = current.x - 1; x <= current.x + 1; x += 1) {
+          if ((x !== current.x || y !== current.y) && x >= 0 && x < this.cols && y >= 0 && y < this.rows) {
+            queue.push({ x, y });
+          }
+        }
+      }
+    }
+    cells.sort((a, b) => a.y - b.y || a.x - b.x);
+    return {
+      type: 'image',
+      link,
+      cells,
+      key: `image:${link}:${cells.map((cell) => `${cell.x},${cell.y}`).join(';')}`,
+    };
   }
 
   setHoverRange(range) {
-    if (
-      this.hoverRange &&
-      range &&
-      this.hoverRange.row === range.row &&
-      this.hoverRange.start === range.start &&
-      this.hoverRange.end === range.end &&
-      this.hoverRange.link === range.link
-    ) {
+    if (this.hoverRange && range && this.hoverRange.key === range.key) {
       return;
     }
     const previous = this.hoverRange;
@@ -655,7 +744,7 @@ export class Terminal {
       this.ensureDirectory(path);
     }
     for (const path of manifest.files || []) {
-      if (isJpegPath(path)) {
+      if (isImagePath(path)) {
         this.writeImageFile(path, sizes[path] ?? 0);
         continue;
       }
@@ -714,7 +803,7 @@ export class Terminal {
       node = node.children[part];
     }
     node.children[name] = file('', {
-      media: 'image/jpeg',
+      media: 'image',
       url: `/root/${path}`,
       size,
     });
@@ -822,7 +911,7 @@ export class Terminal {
     }
   }
 
-  mdsBrowser(paths) {
+  mdsBrowser(paths, { basePath = '', updateHistory = false } = {}) {
     const path = paths[0];
     if (!path) {
       this.write('mds-browser: missing file operand\r\n');
@@ -832,7 +921,8 @@ export class Terminal {
       this.write(`mds-browser: ${path}: only .mds is supported\r\n`);
       return;
     }
-    const result = this.getNode(path);
+    const resolvedPath = this.resolveMdsPath(path, basePath);
+    const result = this.getNode(resolvedPath);
     if (!result.node) {
       this.write(`mds-browser: ${path}: No such file or directory\r\n`);
       return;
@@ -842,7 +932,96 @@ export class Terminal {
       return;
     }
     this.mdsBrowserActive = true;
+    this.currentMdsPath = result.path;
+    this.currentVfsPath = result.path;
+    if (updateHistory) {
+      this.pushMdsHistory(result.path);
+    }
     this.writeMds(`${result.node.content}\r\n`);
+  }
+
+  resolveMdsPath(path, basePath = '') {
+    if (path.startsWith('/')) {
+      return this.normalizePath(path);
+    }
+    const base = basePath || (this.mdsBrowserActive && this.currentMdsPath ? this.dirname(this.currentMdsPath) : this.cwd);
+    return this.normalizePath(`${base}/${path}`);
+  }
+
+  dirname(path) {
+    const normalized = this.normalizePath(path);
+    const slash = normalized.lastIndexOf('/');
+    return slash <= 0 ? '/' : normalized.slice(0, slash);
+  }
+
+  pushMdsHistory(path) {
+    const params = new URLSearchParams(window.location.search);
+    params.delete('vfs');
+    params.set('mds', path);
+    const query = params.toString();
+    window.history.pushState({ mds: path }, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }
+
+  resolveVfsPath(value, basePath = '') {
+    const source = String(value || '').trim();
+    const path = source.startsWith('vfs:') ? source.slice('vfs:'.length) : source;
+    return this.resolveMdsPath(path, basePath);
+  }
+
+  getVfsNode(value, basePath = '') {
+    const path = this.resolveVfsPath(value, basePath);
+    return this.getNode(path);
+  }
+
+  pushVfsHistory(path) {
+    const params = new URLSearchParams(window.location.search);
+    params.delete('mds');
+    params.set('vfs', path);
+    const query = params.toString();
+    window.history.pushState({ vfs: path }, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }
+
+  openVfsPath(path, { basePath = '', updateHistory = false } = {}) {
+    const result = this.getVfsNode(path, basePath || this.dirname(this.currentVfsPath || this.currentMdsPath || this.cwd));
+    if (!result.node) {
+      this.write(`vfs: ${path}: No such file or directory\r\n`);
+      return;
+    }
+    if (result.node.type !== 'file') {
+      this.write(`vfs: ${path}: Is a directory\r\n`);
+      return;
+    }
+    if (/\.mds$/i.test(result.path)) {
+      this.mdsBrowser([result.path], { updateHistory });
+      return;
+    }
+    if (result.node.media === 'image') {
+      this.showVfsImage(result, { updateHistory });
+      return;
+    }
+    this.write(`vfs: ${path}: Unsupported file type\r\n`);
+  }
+
+  showVfsImage(result, { updateHistory = false } = {}) {
+    this.mdsBrowserActive = true;
+    this.currentVfsPath = result.path;
+    this.clearMdsScreen();
+    if (updateHistory) {
+      this.pushVfsHistory(result.path);
+    }
+    this.enqueueOutputAction(() => {
+      this.imageActionPending = true;
+      loadImage(result.node.url).then((image) => {
+        this.drawImageFromNextLine(image, {
+          targetWidth: Math.min(image.naturalWidth || this.canvas.width, this.canvas.width),
+          align: 'center',
+        });
+        this.imageActionPending = false;
+      }).catch((error) => {
+        this.imageActionPending = false;
+        this.write(`vfs: ${error.message}\r\n`);
+      });
+    });
   }
 
   exitMdsBrowser() {
@@ -858,6 +1037,15 @@ export class Terminal {
     let index = 0;
     while (index < text.length) {
       const rest = text.slice(index);
+      const tag = this.parseMdsTag(rest);
+      if (tag) {
+        const consumed = this.writeMdsTag(tag);
+        if (consumed > 0) {
+          index += consumed;
+          continue;
+        }
+      }
+
       if (rest.startsWith('[[clear]]')) {
         this.enqueueOutputAction(() => this.clearMdsScreen());
         index += '[[clear]]'.length;
@@ -892,6 +1080,179 @@ export class Terminal {
     }
   }
 
+  parseMdsTag(text) {
+    const match = text.match(/^<([/a-zA-Z][^>\r\n]*)>/);
+    if (!match) {
+      return null;
+    }
+    const source = match[0];
+    const body = match[1].trim();
+    if (body.startsWith('/')) {
+      return { source, sourceContext: text, name: body.slice(1).trim().toLowerCase(), closing: true, attrs: {} };
+    }
+    const colorMatch = body.match(/^color(?:\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+)))?$/i);
+    if (colorMatch) {
+      return {
+        source,
+        sourceContext: text,
+        name: 'color',
+        closing: false,
+        attrs: { value: colorMatch[1] ?? colorMatch[2] ?? colorMatch[3] ?? '' },
+      };
+    }
+    const [name = '', ...rest] = body.split(/\s+/);
+    return {
+      source,
+      sourceContext: text,
+      name: name.toLowerCase(),
+      closing: false,
+      attrs: this.parseMdsAttrs(rest.join(' ')),
+    };
+  }
+
+  parseMdsAttrs(text) {
+    const attrs = {};
+    for (const match of text.matchAll(/([a-zA-Z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) {
+      attrs[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4] ?? '';
+    }
+    return attrs;
+  }
+
+  writeMdsTag(tag) {
+    if (tag.name === 'clear' && !tag.closing) {
+      this.enqueueOutputAction(() => this.clearMdsScreen());
+      return tag.source.length;
+    }
+    if (tag.name === 'color' && !tag.closing) {
+      this.outputQueue.push(tag.attrs.value ? { type: 'color-push', fg: this.parseMdsColor(tag.attrs.value) } : { type: 'color-pop' });
+      return tag.source.length;
+    }
+    const rangeTags = {
+      u: { underline: true },
+      s: { strike: true },
+      inv: { inverse: true },
+    };
+    if (rangeTags[tag.name] && !tag.closing) {
+      const close = `</${tag.name}>`;
+      const end = this.findMdsCloseTag(tag.sourceContext, close, tag.source.length);
+      if (end >= 0) {
+        this.outputQueue.push({ type: 'style-push', style: rangeTags[tag.name] });
+        this.writeMds(tag.sourceContext.slice(tag.source.length, end));
+        this.outputQueue.push({ type: 'style-pop' });
+        return end + close.length;
+      }
+      this.outputQueue.push({ type: 'style-push', style: rangeTags[tag.name] });
+      return tag.source.length;
+    }
+    if (rangeTags[tag.name] && tag.closing) {
+      this.outputQueue.push({ type: 'style-pop' });
+      return tag.source.length;
+    }
+    return this.writeMdsComplexTag(tag);
+  }
+
+  writeMdsComplexTag(tag) {
+    if (tag.name === 'a' && !tag.closing) {
+      const close = '</a>';
+      const end = this.findMdsCloseTag(tag.sourceContext, close, tag.source.length);
+      if (end < 0 || !tag.attrs.href) {
+        return 0;
+      }
+      const content = tag.sourceContext.slice(tag.source.length, end);
+      const imageTag = this.parseMdsTag(content.trim());
+      if (imageTag?.name === 'img' && !imageTag.closing && imageTag.source.length === content.trim().length) {
+        this.writeMdsImage(imageTag.attrs, tag.attrs.href);
+      } else {
+        this.outputQueue.push({ type: 'style-push', style: { fg: 14, bold: true, underline: true } });
+        this.outputQueue.push({ type: 'link-start', target: tag.attrs.href });
+        this.writeMds(content);
+        this.outputQueue.push({ type: 'link-end' });
+        this.outputQueue.push({ type: 'style-pop' });
+      }
+      return end + close.length;
+    }
+    if (tag.name === 'img' && !tag.closing) {
+      this.writeMdsImage(tag.attrs, null);
+      return tag.source.length;
+    }
+    return 0;
+  }
+
+  findMdsCloseTag(text, close, start) {
+    return text.toLowerCase().indexOf(close.toLowerCase(), start);
+  }
+
+  parseMdsColor(value) {
+    const color = String(value || '').trim().toLowerCase();
+    if (!color) {
+      return DEFAULT_TEXT_STATE.fg;
+    }
+    if (/^#[0-9a-f]{6}$/i.test(color)) {
+      return color;
+    }
+    return COLOR_NAMES[color] ?? DEFAULT_TEXT_STATE.fg;
+  }
+
+  writeMdsImage(attrs, link) {
+    const src = attrs.src;
+    if (!src) {
+      return;
+    }
+    const imageResult = this.resolveMdsImage(src);
+    if (imageResult.error) {
+      this.write(`img: ${imageResult.error}\r\n`);
+      return;
+    }
+    const align = ['left', 'center', 'right'].includes(attrs.align) ? attrs.align : 'left';
+    this.enqueueOutputAction(() => {
+      this.imageActionPending = true;
+      try {
+        loadImage(imageResult.url).then((image) => {
+          this.drawImageFromNextLine(image, {
+            targetWidth: Math.min(image.naturalWidth || this.canvas.width, this.canvas.width),
+            align,
+            link,
+          });
+          this.imageActionPending = false;
+        }).catch((error) => {
+          this.imageActionPending = false;
+          this.write(`img: ${error.message}\r\n`);
+        });
+      } catch (error) {
+        this.imageActionPending = false;
+        this.write(`img: ${error.message}\r\n`);
+      }
+    });
+  }
+
+  resolveMdsImage(src) {
+    const value = String(src || '').trim();
+    if (/^https?:\/\//i.test(value)) {
+      return { url: value };
+    }
+    if (!value.startsWith('vfs:')) {
+      return { url: value };
+    }
+    if (value.startsWith('vfs:/root/')) {
+      return { error: `${value}: /root is not a virtual filesystem path` };
+    }
+    const path = this.resolveVfsPath(value, this.dirname(this.currentMdsPath));
+    if (!isImagePath(path)) {
+      return { error: `${value}: only image files are supported` };
+    }
+    const result = this.getNode(path);
+    if (!result.node) {
+      return { error: `${value}: No such file or directory` };
+    }
+    if (result.node.type !== 'file') {
+      return { error: `${value}: Is a directory` };
+    }
+    if (result.node.media !== 'image') {
+      return { error: `${value}: Not an image file` };
+    }
+    return { path: result.path, url: result.node.url };
+  }
+
   writeLinkedText(text, target, style) {
     this.outputQueue.push({ type: 'style-push', style });
     this.outputQueue.push({ type: 'link-start', target });
@@ -905,8 +1266,12 @@ export class Terminal {
       window.open(target, '_blank', 'noopener,noreferrer');
       return;
     }
+    if (target.startsWith('vfs:')) {
+      this.openVfsPath(target, { basePath: this.dirname(this.currentVfsPath || this.currentMdsPath), updateHistory: true });
+      return;
+    }
     if (target.startsWith('page:')) {
-      this.write(`\r\nOPEN INTERNAL PAGE: ${target.slice('page:'.length)}\r\n`);
+      this.write(`\r\nlink: page: is deprecated; use vfs:\r\n`);
       return;
     }
     if (target.startsWith('cmd:')) {
@@ -927,8 +1292,8 @@ export class Terminal {
       this.write('imgcat: missing file operand\r\n');
       return;
     }
-    if (!isJpegPath(path)) {
-      this.write(`imgcat: ${path}: only .jpg is supported\r\n`);
+    if (!isImagePath(path)) {
+      this.write(`imgcat: ${path}: only image files are supported\r\n`);
       return;
     }
     const result = this.getNode(path);
@@ -940,8 +1305,8 @@ export class Terminal {
       this.write(`imgcat: ${path}: Is a directory\r\n`);
       return;
     }
-    if (result.node.media !== 'image/jpeg') {
-      this.write(`imgcat: ${path}: Not a JPEG file\r\n`);
+    if (result.node.media !== 'image') {
+      this.write(`imgcat: ${path}: Not an image file\r\n`);
       return;
     }
 
@@ -953,7 +1318,7 @@ export class Terminal {
 
     try {
       const image = await loadImage(result.node.url);
-      this.enqueueOutputAction(() => this.drawImageFromNextLine(image, scalePercent));
+      this.enqueueOutputAction(() => this.drawImageFromNextLine(image, { scalePercent }));
     } catch (error) {
       this.write(`imgcat: ${error.message}\r\n`);
     }
@@ -974,29 +1339,47 @@ export class Terminal {
     return percent;
   }
 
-  drawImageFromNextLine(image, scalePercent) {
+  drawImageFromNextLine(image, { scalePercent = null, targetWidth = null, align = 'left', link = null } = {}) {
     this.followOutput();
-    const targetWidth = Math.max(1, Math.min(this.canvas.width, Math.round(this.canvas.width * (scalePercent / 100))));
-    const targetHeight = Math.max(1, Math.round(targetWidth * (image.naturalHeight / image.naturalWidth)));
+    const width = Math.max(
+      1,
+      Math.min(
+        this.canvas.width,
+        targetWidth === null ? Math.round(this.canvas.width * ((scalePercent || 100) / 100)) : targetWidth,
+      ),
+    );
+    const targetHeight = Math.max(1, Math.round(width * (image.naturalHeight / image.naturalWidth)));
+    const offsetX = this.getImageOffsetX(width, align);
     const imageCanvas = document.createElement('canvas');
-    imageCanvas.width = targetWidth;
+    imageCanvas.width = width;
     imageCanvas.height = targetHeight;
     const imageCtx = imageCanvas.getContext('2d', { willReadFrequently: true });
-    imageCtx.drawImage(image, 0, 0, targetWidth, targetHeight);
+    imageCtx.drawImage(image, 0, 0, width, targetHeight);
 
     this.moveToNextImageLine();
     for (let sourceY = 0; sourceY < targetHeight; sourceY += CELL_H) {
       const blockHeight = Math.min(CELL_H, targetHeight - sourceY);
       const blocks = [];
-      for (let sourceX = 0; sourceX < targetWidth; sourceX += CELL_W) {
-        const blockWidth = Math.min(CELL_W, targetWidth - sourceX);
+      for (let sourceX = 0; sourceX < width; sourceX += CELL_W) {
+        const blockWidth = Math.min(CELL_W, width - sourceX);
         blocks.push({
-          x: sourceX,
+          x: offsetX + sourceX,
           target: imageCtx.getImageData(sourceX, sourceY, blockWidth, blockHeight),
+          link,
         });
       }
       this.waitingImageRows.push(blocks);
     }
+  }
+
+  getImageOffsetX(width, align) {
+    if (align === 'center') {
+      return Math.max(0, Math.floor((this.canvas.width - width) / 2));
+    }
+    if (align === 'right') {
+      return Math.max(0, this.canvas.width - width);
+    }
+    return 0;
   }
 
   clear() {
@@ -1016,8 +1399,11 @@ export class Terminal {
     this.waitingImageRows = [];
     this.outputQueue = [];
     this.stateStack = [];
+    this.state = freshTextState();
+    this.colorStack = [];
     this.activeLink = null;
     this.hoverRange = null;
+    this.imageActionPending = false;
     this.mdsBrowserActive = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -1038,6 +1424,11 @@ export class Terminal {
     this.activeImageTasks = [];
     this.waitingImageTasks = [];
     this.waitingImageRows = [];
+    this.state = freshTextState();
+    this.stateStack = [];
+    this.colorStack = [];
+    this.activeLink = null;
+    this.imageActionPending = false;
     this.hoverRange = null;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -1082,12 +1473,14 @@ export class Terminal {
     if (
       this.waitingImageRows.length > 0 ||
       this.waitingImageTasks.length > 0 ||
-      this.activeImageTasks.length > 0
+      this.activeImageTasks.length > 0 ||
+      this.imageActionPending
     ) {
       return;
     }
     let processed = 0;
-    while (this.outputQueue.length > 0 && processed < TEXT_OUTPUT_CHARS_PER_FRAME) {
+    const charLimit = this.skipAnimations ? Number.POSITIVE_INFINITY : TEXT_OUTPUT_CHARS_PER_FRAME;
+    while (this.outputQueue.length > 0 && processed < charLimit) {
       const item = this.outputQueue.shift();
       if (item.type === 'action') {
         item.action();
@@ -1098,8 +1491,23 @@ export class Terminal {
         this.state = { ...this.state, ...item.style };
         continue;
       }
+      if (item.type === 'style-set') {
+        this.state = { ...this.state, ...item.style };
+        continue;
+      }
+      if (item.type === 'color-push') {
+        this.colorStack.push(this.state.fg);
+        this.state = { ...this.state, fg: item.fg };
+        continue;
+      }
+      if (item.type === 'color-pop') {
+        if (this.colorStack.length > 0) {
+          this.state = { ...this.state, fg: this.colorStack.pop() };
+        }
+        continue;
+      }
       if (item.type === 'style-pop') {
-        this.state = this.stateStack.pop() || { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
+        this.state = this.stateStack.pop() || freshTextState();
         continue;
       }
       if (item.type === 'link-start') {
@@ -1144,7 +1552,7 @@ export class Terminal {
     const codes = payload ? payload.split(';').map((value) => Number(value || 0)) : [0];
     for (const code of codes) {
       if (code === 0) {
-        this.state = { fg: 10, bg: 0, bold: false, inverse: false, underline: false };
+        this.state = freshTextState();
       } else if (code === 1) {
         this.state.bold = true;
       } else if (code === 4) {
@@ -1195,7 +1603,9 @@ export class Terminal {
       bold: this.state.bold,
       inverse: this.state.inverse,
       underline: this.state.underline,
+      strike: this.state.strike,
       link: this.activeLink,
+      linkAuto: false,
       wideTail: false,
     };
     this.cells[this.cursorY][this.cursorX] = cell;
@@ -1209,6 +1619,7 @@ export class Terminal {
         bold: cell.bold,
         inverse: cell.inverse,
         underline: cell.underline,
+        strike: cell.strike,
       });
     }
     if (width === 2 && this.cursorX + 1 < this.cols) {
@@ -1253,6 +1664,12 @@ export class Terminal {
   }
 
   repaintRange(range, hover) {
+    if (range.type === 'image') {
+      for (const cell of range.cells) {
+        this.repaintCell(cell.x, cell.y, hover);
+      }
+      return;
+    }
     for (let x = range.start; x <= range.end; x += 1) {
       this.repaintCell(x, range.row, hover);
     }
@@ -1264,7 +1681,7 @@ export class Terminal {
       return;
     }
     if (cell.media === 'image-block') {
-      this.ctx.putImageData(cell.imageData, x * CELL_W, y * CELL_H);
+      this.repaintImageCell(cell, x, y, hover);
       return;
     }
     const char = cell.ch || ' ';
@@ -1277,6 +1694,7 @@ export class Terminal {
       bold: cell.bold,
       inverse: hover ? !cell.inverse : cell.inverse,
       underline: cell.underline,
+      strike: cell.strike,
     });
     this.ctx.putImageData(imageData, x * CELL_W, y * CELL_H);
   }
@@ -1303,12 +1721,20 @@ export class Terminal {
           continue;
         }
         if (cell.media === 'image-block') {
-          this.ctx.putImageData(cell.imageData, x * CELL_W, y * CELL_H);
+          this.repaintImageCell(cell, x, y, false);
         } else if (!isBlankChar(cell.ch || ' ')) {
           this.repaintCell(x, y, false);
         }
       }
     }
+  }
+
+  repaintImageCell(cell, x, y, hover = false) {
+    const destX = x * CELL_W + (cell.offsetX || 0);
+    const destY = y * CELL_H;
+    this.ctx.fillStyle = PALETTE[0];
+    this.ctx.fillRect(destX, destY, cell.blockWidth, cell.blockHeight);
+    this.ctx.putImageData(hover ? invertImageData(cell.imageData) : cell.imageData, destX, destY);
   }
 
   newLine() {
@@ -1336,6 +1762,14 @@ export class Terminal {
   }
 
   enqueueGlyphTask(task) {
+    if (this.skipAnimations) {
+      const imageData = makeGlyphTarget({
+        ...task,
+        width: isFullWidth(task.char) ? CELL_W * 2 : CELL_W,
+      });
+      this.ctx.putImageData(imageData, task.x, task.y);
+      return;
+    }
     this.waitingGlyphTasks.push(new GlyphTask(task));
   }
 
@@ -1379,7 +1813,11 @@ export class Terminal {
     for (const block of blocks) {
       const cellX = Math.floor(block.x / CELL_W);
       if (cellX >= 0 && cellX < this.cols) {
-        this.cells[this.cursorY][cellX] = imageCell(block.target);
+        this.cells[this.cursorY][cellX] = imageCell(block.target, block.link, block.x - cellX * CELL_W);
+      }
+      if (this.skipAnimations) {
+        this.ctx.putImageData(block.target, block.x, destY);
+        continue;
       }
       this.waitingImageTasks.push(
         new ImageBlockTask({

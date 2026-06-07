@@ -96,7 +96,7 @@ export const CRT_TEXTURE_ANTIALIAS = true;
 
 // trueにすると、WebGLコンテキスト作成時のantialiasを有効にする。
 // 作成後は切り替えできないため、変更後はリロードが必要。
-export const CRT_WEBGL_ANTIALIAS = true;
+export const CRT_WEBGL_ANTIALIAS = false;
 
 // V-Syncズレが通常位置へ戻るまでの時間。
 export const CRT_VSYNC_DRIFT_DURATION_MS = 1000;

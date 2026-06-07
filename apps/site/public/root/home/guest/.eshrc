@@ -1,2 +1,2 @@
 # elegg-shell startup script
-mds-browser /content/link-test.mds
+mds-browser /var/www/mds/home/index.mds

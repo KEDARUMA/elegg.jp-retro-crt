@@ -77,3 +77,25 @@ input {
   mix-blend-mode: screen;
   opacity: 0.38;
 }
+
+.screen-wrap.is-test-mode {
+  display: grid;
+  place-items: center;
+  background: #020302;
+}
+
+.screen-wrap.is-test-mode #crtCanvas,
+.screen-wrap.is-test-mode .glass {
+  display: none;
+}
+
+.test-canvas {
+  display: block;
+  width: auto;
+  height: min(100vh, 100vw);
+  max-width: 100vw;
+  max-height: 100vh;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #020302;
+}

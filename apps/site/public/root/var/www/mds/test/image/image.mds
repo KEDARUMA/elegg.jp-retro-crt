@@ -1,0 +1,17 @@
+<clear>
+
+MDS IMAGE TEST
+
+Left image:
+<img src="vfs:../assets/elegg-logo-40.png" align="left" alt="Elegg logo left">
+
+Center image:
+<img src="vfs:../assets/elegg-logo-40.png" align="center" alt="Elegg logo center">
+
+Right image:
+<img src="vfs:../assets/elegg-logo-40.png" align="right" alt="Elegg logo right">
+
+Image link:
+<a href="vfs:/var/www/mds/test/link/link-target/link-target.mds">
+  <img src="vfs:../assets/elegg-logo-40.png" align="center" alt="Open link target">
+</a>

@@ -1,0 +1,18 @@
+<clear><color="white">MDS LINK TEST
+
+Auto URL:
+http://127.0.0.1:5173/mds-link-target.html
+
+External link:
+<a href="http://127.0.0.1:5173/mds-link-target.html">Open Local Target</a>
+
+VFS page:
+<a href="vfs:/var/www/mds/test/link/link-target/link-target.mds">Open Absolute Path Page</a>
+<a href="vfs:link-target/link-target.mds">Open Offset Path Page</a>
+
+Internal image:
+<a href="vfs:../assets/elegg-logo-40.png">Open VFS Image</a>
+
+Virtual command:
+<a href="cmd:echo 'Echo !!!'">Run Echo</a>
+<a href="cmd:imgcat /var/www/mds/test/assets/elegg-logo-163.png">Run imgcat</a>

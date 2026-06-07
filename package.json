@@ -6,6 +6,12 @@
     "dev": "pnpm --filter @elegg/site dev",
     "build": "pnpm --filter @elegg/site build",
     "preview": "pnpm --filter @elegg/site preview",
+    "test": "node apps/site/scripts/test-mds-snapshots.mjs",
     "update-fs": "pnpm --filter @elegg/site update-fs"
+  },
+  "devDependencies": {
+    "pixelmatch": "^7.2.0",
+    "playwright": "^1.60.0",
+    "pngjs": "^7.0.0"
   }
 }
