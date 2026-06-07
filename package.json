@@ -4,8 +4,11 @@
   "packageManager": "pnpm@10.24.0",
   "scripts": {
     "dev": "pnpm --filter @elegg/site dev",
+    "dev:aa-maker": "pnpm --filter @elegg/aa-maker dev",
     "build": "pnpm --filter @elegg/site build",
+    "build:aa-maker": "pnpm --filter @elegg/aa-maker build",
     "preview": "pnpm --filter @elegg/site preview",
+    "preview:aa-maker": "pnpm --filter @elegg/aa-maker preview",
     "test": "node apps/site/scripts/test-mds-snapshots.mjs",
     "update-fs": "pnpm --filter @elegg/site update-fs"
   },

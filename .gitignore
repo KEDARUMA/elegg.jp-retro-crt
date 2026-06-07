@@ -14,6 +14,9 @@ coverage/
 # logs
 *.log
 
+# app temp files
+apps/aa-maker/tmp/
+
 # OS / editor
 .DS_Store
 .vscode/
