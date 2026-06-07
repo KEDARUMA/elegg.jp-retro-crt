@@ -79,12 +79,18 @@ button {
   grid-area: tools;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   align-items: stretch;
-  gap: 6px;
   padding: 8px 6px;
   border: 1px solid #777777;
   border-top: 0;
   background: #eeeeee;
+}
+
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .tool-button {
@@ -92,6 +98,7 @@ button {
   width: 34px;
   min-height: 34px;
   padding: 0;
+  opacity: 1;
 }
 
 .tool-button.is-selected::before {
@@ -102,6 +109,33 @@ button {
   width: 3px;
   background: #111111;
   content: "";
+}
+
+.tool-button svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tool-button:disabled {
+  cursor: default;
+}
+
+.selected-char {
+  display: block;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #777777;
+  background: #ffffff;
+  color: #000000;
+  font-size: 20px;
+  line-height: 32px;
+  text-align: center;
+  user-select: none;
 }
 
 .editor-panel {
@@ -128,6 +162,7 @@ button {
   border-top: 1px solid #dddddd;
   border-left: 1px solid #dddddd;
   background: #ffffff;
+  user-select: none;
 }
 
 .aa-cell {
@@ -139,6 +174,16 @@ button {
   line-height: 18px;
   text-align: center;
   white-space: pre;
+  user-select: none;
+}
+
+.aa-cell:nth-child(10n) {
+  border-right-color: #c8c8c8;
+}
+
+.aa-cell:nth-child(n + 721):nth-child(-n + 800),
+.aa-cell:nth-child(n + 1521):nth-child(-n + 1600) {
+  border-bottom-color: #c8c8c8;
 }
 
 .side-panel {
@@ -169,6 +214,59 @@ button {
   border-bottom: 1px solid #777777;
   background: #dddddd;
   font-size: 14px;
+}
+
+.info-panel {
+  font-size: 12px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, auto 1fr);
+  gap: 4px 6px;
+  padding: 8px;
+  border-bottom: 1px solid #dddddd;
+}
+
+.info-grid span {
+  color: #555555;
+}
+
+.info-grid strong {
+  font-weight: 400;
+}
+
+.cell-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.empty-cell-preview {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #777777;
+  background:
+    linear-gradient(135deg, transparent 45%, #777777 46%, #777777 54%, transparent 55%),
+    #d0d0d0;
+}
+
+.palette-select-label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 0;
+  font-size: 12px;
+}
+
+.palette-select {
+  min-width: 0;
+  border: 1px solid #777777;
+  background: #ffffff;
+  color: #111111;
+  font: inherit;
 }
 
 .char-palette {
