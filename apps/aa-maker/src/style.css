@@ -1,9 +1,11 @@
 :root {
-  color: #111111;
-  background: #d8d8d8;
+  color: #eeeeee;
+  background: #252525;
   --cell-width: 8px;
   --cell-height: 16px;
   --cell-font-size: 16px;
+  --ruler-top-height: 24px;
+  --ruler-left-width: 16px;
   --aa-font-family: "MS Gothic", monospace;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -41,7 +43,7 @@ button {
   width: 100%;
   min-height: 0;
   padding: 0;
-  background: #c8c8c8;
+  background: #252525;
 }
 
 .top-menu {
@@ -52,7 +54,7 @@ button {
   gap: 0;
   min-height: 26px;
   padding: 0;
-  background: #eeeeee;
+  background: #303030;
 }
 
 .menu-list {
@@ -64,8 +66,8 @@ button {
 .palette-button,
 .tool-button {
   border: 0;
-  background: #f8f8f8;
-  color: #111111;
+  background: #3a3a3a;
+  color: #eeeeee;
 }
 
 .menu-list button {
@@ -73,19 +75,19 @@ button {
   min-height: 26px;
   padding: 0 12px;
   background: transparent;
-  color: #111111;
+  color: #eeeeee;
   font-size: 13px;
   font-weight: 600;
 }
 
 .menu-list button:hover,
 .menu-list button:focus-visible {
-  background: #dddddd;
+  background: #474747;
   outline: 0;
 }
 
 .menu-list button:active {
-  background: #d0d0d0;
+  background: #555555;
 }
 
 .toolbox {
@@ -96,7 +98,7 @@ button {
   align-items: stretch;
   min-height: 0;
   padding: 0;
-  background: #eeeeee;
+  background: #303030;
 }
 
 .tool-list {
@@ -119,7 +121,7 @@ button {
   bottom: 4px;
   left: 2px;
   width: 3px;
-  background: #111111;
+  background: #eeeeee;
   content: "";
 }
 
@@ -142,8 +144,8 @@ button {
   display: block;
   width: 34px;
   height: 34px;
-  background: #ffffff;
-  color: #000000;
+  background: #474747;
+  color: #eeeeee;
   font-family: var(--aa-font-family);
   font-size: 20px;
   line-height: 32px;
@@ -158,17 +160,98 @@ button {
   min-width: 0;
   min-height: 0;
   padding: 0;
-  background: #bdbdbd;
+  background: #252525;
   overflow: hidden;
 }
 
 .grid-wrap {
+  position: relative;
   flex: 1;
+  display: grid;
+  place-items: center;
   min-width: 0;
   min-height: 0;
   padding: 0;
-  background: #ffffff;
-  overflow: auto;
+  background: #252525;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.grid-wrap.is-panning {
+  cursor: grabbing;
+}
+
+.editor-stage {
+  position: relative;
+  width: calc(var(--cell-width) * 80);
+  height: calc(var(--cell-height) * 25);
+  will-change: transform;
+}
+
+.ruler-corner,
+.top-ruler,
+.left-ruler {
+  position: absolute;
+  z-index: 3;
+  background: #303030;
+  color: #bbbbbb;
+  font-family: var(--aa-font-family);
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ruler-corner {
+  width: var(--ruler-left-width);
+  height: var(--ruler-top-height);
+}
+
+.top-ruler {
+  height: var(--ruler-top-height);
+  overflow: hidden;
+  border-bottom: 1px solid #555555;
+}
+
+.left-ruler {
+  width: var(--ruler-left-width);
+  overflow: hidden;
+  border-right: 1px solid #555555;
+}
+
+.top-ruler-mark,
+.left-ruler-mark {
+  position: absolute;
+}
+
+.top-ruler-mark {
+  bottom: 2px;
+  transform: translateX(-1px);
+}
+
+.top-ruler-mark::before {
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 1px;
+  height: 5px;
+  background: #777777;
+  content: "";
+}
+
+.left-ruler-mark {
+  right: 2px;
+  transform: translateY(-1px);
+}
+
+.left-ruler-mark::before {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
+  height: 1px;
+  background: #777777;
+  content: "";
 }
 
 .aa-grid {
@@ -245,12 +328,12 @@ button {
   min-width: 0;
   min-height: 0;
   padding: 8px;
-  background: #eeeeee;
+  background: #303030;
   overflow: auto;
 }
 
 .panel-section {
-  background: #f8f8f8;
+  background: #474747;
 }
 
 .panel-section--grow {
@@ -260,7 +343,7 @@ button {
 .panel-section h2 {
   margin: 0;
   padding: 6px 8px;
-  background: #dddddd;
+  background: #3a3a3a;
   font-size: 14px;
 }
 
@@ -276,7 +359,7 @@ button {
 }
 
 .info-grid span {
-  color: #555555;
+  color: #bbbbbb;
 }
 
 .info-grid strong {
@@ -297,8 +380,8 @@ button {
 }
 
 .cell-preview {
-  background: #ffffff;
-  color: #000000;
+  background: #474747;
+  color: #eeeeee;
   font-family: var(--aa-font-family);
   font-size: 20px;
   line-height: 30px;
@@ -308,7 +391,7 @@ button {
 .empty-cell-preview {
   background:
     linear-gradient(135deg, transparent 45%, #777777 46%, #777777 54%, transparent 55%),
-    #d0d0d0;
+    #3a3a3a;
 }
 
 .palette-select-label {
@@ -323,8 +406,8 @@ button {
 .palette-select {
   min-width: 0;
   border: 0;
-  background: #ffffff;
-  color: #111111;
+  background: #303030;
+  color: #eeeeee;
   font: inherit;
 }
 
@@ -340,10 +423,12 @@ button {
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 0;
+  background: #ffffff;
   padding: 8px;
 }
 
 .history-palette {
+  background: #ffffff;
   padding: 8px;
 }
 
@@ -368,12 +453,13 @@ button {
   border: 0;
   outline: 1px solid transparent;
   background: #f8f8f8;
+  color: #111111;
   overflow: visible;
   user-select: none;
 }
 
 .palette-button:disabled {
-  background: #eeeeee;
+  background: #303030;
   cursor: default;
 }
 
@@ -399,7 +485,7 @@ button {
   position: relative;
   z-index: 1;
   outline: 2px solid #111111;
-  background: #ffffff;
+  background: #d8d8d8;
 }
 
 .keyboard-palette,
@@ -411,8 +497,8 @@ button {
   width: 100%;
   min-height: 24px;
   border: 0;
-  background: #ffffff;
-  color: #111111;
+  background: #303030;
+  color: #eeeeee;
   font: inherit;
 }
 
@@ -420,7 +506,8 @@ button {
   position: relative;
   height: 260px;
   margin-top: 0;
-  background: #f8f8f8;
+  background: #ffffff;
+  color: #111111;
   overflow: auto;
 }
 
@@ -454,7 +541,7 @@ button {
 }
 
 .layer-item.is-active {
-  background: #111111;
+  background: #5a5a5a;
   color: #ffffff;
 }
 
@@ -469,7 +556,7 @@ button {
 
 .empty-note {
   padding: 10px 8px;
-  color: #555555;
+  color: #bbbbbb;
   font-size: 13px;
 }
 
@@ -481,7 +568,7 @@ button {
   gap: 16px;
   min-width: 0;
   padding: 0;
-  background: #eeeeee;
-  color: #333333;
+  background: #252525;
+  color: #eeeeee;
   font-size: 12px;
 }
