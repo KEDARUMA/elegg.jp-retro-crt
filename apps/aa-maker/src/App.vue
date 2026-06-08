@@ -37,7 +37,7 @@ const aaMaker = useAaMaker();
       :selected-char="aaMaker.toolState.selectedChar"
       :selected-code="aaMaker.selectedPaletteCode.value"
       :info="aaMaker.info.value"
-      :layers="aaMaker.documentModel.layers"
+      :layers="aaMaker.layerList.value"
       :active-layer-id="aaMaker.documentModel.activeLayerId"
       :active-tool="aaMaker.toolState.activeTool"
       @select-palette="aaMaker.selectPalette"
@@ -46,6 +46,13 @@ const aaMaker = useAaMaker();
       @update-unicode-query="aaMaker.updateUnicodeQuery"
       @update-unicode-scroll-offset="aaMaker.updateUnicodeScrollOffset"
       @assign-history-char="aaMaker.assignHistoryChar"
+      @select-layer="aaMaker.selectLayer"
+      @toggle-layer-visible="aaMaker.toggleLayerVisible"
+      @toggle-layer-locked="aaMaker.toggleLayerLocked"
+      @move-layer="aaMaker.moveLayer"
+      @rename-layer="aaMaker.renameLayer"
+      @add-layer="aaMaker.addLayer"
+      @delete-active-layer="aaMaker.deleteActiveLayer"
     />
     <footer class="bottom-status-bar" aria-label="Status">
       <span>80 x 25</span>

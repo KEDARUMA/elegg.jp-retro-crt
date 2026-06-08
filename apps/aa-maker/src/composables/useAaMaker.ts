@@ -9,9 +9,9 @@ import stampIcon from "../assets/icons/stamp.svg?raw";
 import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
 import { composeDocument } from "../model/composeLayers";
-import { createEmptyDocument, createInitialToolState } from "../model/createDocument";
+import { createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
-import type { Cell, CompositedCell, Layer, Tool } from "../model/types";
+import type { Layer, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -196,6 +196,7 @@ export function useAaMaker() {
   });
 
   const compositedGrid = computed(() => composeDocument(documentModel));
+  const layerList = computed(() => [...documentModel.layers].reverse());
   const info = computed(() => {
     const position = cursorPosition.value;
 
@@ -212,7 +213,8 @@ export function useAaMaker() {
       };
     }
 
-    const cell = getHeadCell(getActiveLayer(), position.x, position.y);
+    const activeLayer = getEditableActiveLayer();
+    const cell = activeLayer ? getHeadCell(activeLayer, position.x, position.y) : null;
 
     return {
       x: String(position.x),
@@ -246,6 +248,97 @@ export function useAaMaker() {
 
   function selectPalette(paletteId: string) {
     activePaletteId.value = paletteId;
+  }
+
+  function selectLayer(layerId: string) {
+    const layer = documentModel.layers.find((candidate) => candidate.id === layerId);
+
+    if (!layer || !isSelectableLayer(layer)) {
+      return;
+    }
+
+    documentModel.activeLayerId = layer.id;
+  }
+
+  function addLayer() {
+    const layerNumber = documentModel.nextLayerNumber;
+    const layer = createLayer(`layer-${layerNumber}`, `Layer ${layerNumber}`);
+
+    documentModel.layers.push(layer);
+    documentModel.activeLayerId = layer.id;
+    documentModel.nextLayerNumber += 1;
+  }
+
+  function deleteActiveLayer() {
+    if (documentModel.layers.length <= 1) {
+      return;
+    }
+
+    const layerIndex = documentModel.layers.findIndex((layer) => layer.id === documentModel.activeLayerId);
+
+    if (layerIndex < 0) {
+      return;
+    }
+
+    documentModel.layers.splice(layerIndex, 1);
+    ensureActiveLayerSelectable();
+  }
+
+  function toggleLayerVisible(layerId: string) {
+    const layer = documentModel.layers.find((candidate) => candidate.id === layerId);
+
+    if (!layer) {
+      return;
+    }
+
+    layer.visible = !layer.visible;
+    ensureActiveLayerSelectable();
+  }
+
+  function toggleLayerLocked(layerId: string) {
+    const layer = documentModel.layers.find((candidate) => candidate.id === layerId);
+
+    if (!layer) {
+      return;
+    }
+
+    layer.locked = !layer.locked;
+    ensureActiveLayerSelectable();
+  }
+
+  function renameLayer(layerId: string, name: string) {
+    const layer = documentModel.layers.find((candidate) => candidate.id === layerId);
+    const trimmedName = name.trim();
+
+    if (!layer || trimmedName === "") {
+      return;
+    }
+
+    layer.name = trimmedName;
+  }
+
+  function moveLayer(draggedLayerId: string, targetLayerId: string, placement: "before" | "after") {
+    if (draggedLayerId === targetLayerId) {
+      return;
+    }
+
+    const displayLayers = [...documentModel.layers].reverse();
+    const draggedIndex = displayLayers.findIndex((layer) => layer.id === draggedLayerId);
+    const targetIndex = displayLayers.findIndex((layer) => layer.id === targetLayerId);
+
+    if (draggedIndex < 0 || targetIndex < 0) {
+      return;
+    }
+
+    const [draggedLayer] = displayLayers.splice(draggedIndex, 1);
+    const newTargetIndex = displayLayers.findIndex((layer) => layer.id === targetLayerId);
+
+    if (newTargetIndex < 0) {
+      return;
+    }
+
+    displayLayers.splice(placement === "after" ? newTargetIndex + 1 : newTargetIndex, 0, draggedLayer);
+    documentModel.layers.splice(0, documentModel.layers.length, ...displayLayers.reverse());
   }
 
   function handleKeyboardInput(value: string) {
@@ -347,7 +440,12 @@ export function useAaMaker() {
   }
 
   function applyTool(x: number, y: number) {
-    const activeLayer = getActiveLayer();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!activeLayer) {
+      cursorPosition.value = { x, y };
+      return;
+    }
 
     if (toolState.activeTool === "pen") {
       if (toolState.selectedChar === null) {
@@ -421,7 +519,8 @@ export function useAaMaker() {
   }
 
   function pickChar(x: number, y: number) {
-    const cell = getHeadCell(getActiveLayer(), x, y);
+    const activeLayer = getEditableActiveLayer();
+    const cell = activeLayer ? getHeadCell(activeLayer, x, y) : null;
 
     if (!cell) {
       setSelectedChar(null, 1, false);
@@ -464,51 +563,56 @@ export function useAaMaker() {
   }
 
   function getCellText(x: number, y: number) {
-    const cell = getCell(getActiveLayer(), x, y);
     const compositedCell = compositedGrid.value[y][x];
-
-    if (!cell || cell.kind === "empty") {
-      return compositedCell.char === " " ? "\u00a0" : compositedCell.char;
-    }
-
-    if (cell.kind === "wide-tail") {
-      return "\u00a0";
-    }
-
-    return cell.char;
+    return compositedCell.char === " " ? "\u00a0" : compositedCell.char;
   }
 
   function getCellClass(x: number, y: number) {
-    const cell = getCell(getActiveLayer(), x, y);
+    const activeLayer = getEditableActiveLayer();
+    const cell = activeLayer ? getCell(activeLayer, x, y) : null;
     return cell?.kind === "wide-tail" ? ["is-wide-tail"] : [];
   }
 
   function getCellStyle(x: number, y: number) {
-    const cell = getCell(getActiveLayer(), x, y);
     const compositedCell = compositedGrid.value[y][x];
+    const style = { backgroundColor: `#${compositedCell.bgc}` } as Record<string, string>;
 
-    if (!cell || cell.kind === "empty") {
-      return { backgroundColor: `#${compositedCell.bgc}` };
+    if (compositedCell.fgc) {
+      style.color = `#${compositedCell.fgc}`;
     }
 
-    if (cell.kind === "wide-tail") {
-      return {};
-    }
-
-    return {
-      color: `#${cell.fgc}`,
-      backgroundColor: `#${cell.bgc ?? documentModel.canvasBGC}`,
-    };
+    return style;
   }
 
-  function getActiveLayer(): Layer {
+  function getEditableActiveLayer(): Layer | null {
     const layer = documentModel.layers.find((candidate) => candidate.id === documentModel.activeLayerId);
 
-    if (!layer) {
-      throw new Error("Active layer was not found.");
+    if (!layer || !isSelectableLayer(layer)) {
+      return null;
     }
 
     return layer;
+  }
+
+  function ensureActiveLayerSelectable() {
+    const activeLayer = documentModel.layers.find((layer) => layer.id === documentModel.activeLayerId);
+
+    if (activeLayer && isSelectableLayer(activeLayer)) {
+      return;
+    }
+
+    const selectableLayer = [...documentModel.layers].reverse().find(isSelectableLayer);
+
+    if (selectableLayer) {
+      documentModel.activeLayerId = selectableLayer.id;
+      return;
+    }
+
+    documentModel.activeLayerId = documentModel.layers[documentModel.layers.length - 1]?.id ?? "";
+  }
+
+  function isSelectableLayer(layer: Layer) {
+    return layer.visible && !layer.locked;
   }
 
   return {
@@ -518,6 +622,7 @@ export function useAaMaker() {
     gridCells,
     gridLineStyle,
     info,
+    layerList,
     palettes,
     selectedPaletteCode,
     selectionStyle,
@@ -534,10 +639,17 @@ export function useAaMaker() {
     handleGridWheel,
     handleKeyboardInput,
     assignHistoryChar,
+    addLayer,
+    deleteActiveLayer,
+    moveLayer,
+    renameLayer,
     selectPalette,
     selectPaletteChar,
+    selectLayer,
     selectTool,
     stopDrawing,
+    toggleLayerLocked,
+    toggleLayerVisible,
     updateUnicodeQuery,
     updateUnicodeScrollOffset,
   };

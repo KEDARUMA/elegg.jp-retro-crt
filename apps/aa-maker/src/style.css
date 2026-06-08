@@ -551,12 +551,124 @@ button {
 }
 
 .layer-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 4px;
   margin: 0;
-  padding: 6px 8px;
+  padding: 4px 2px;
+  border-bottom: 1px solid #3a3a3a;
   font-size: 13px;
+  cursor: grab;
+}
+
+.layer-item.is-disabled {
+  color: #bbbbbb;
+}
+
+.layer-item:active {
+  cursor: grabbing;
+}
+
+.layer-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.layer-name-input {
+  min-width: 0;
+  width: 100%;
+  height: 22px;
+  border: 0;
+  background: #303030;
+  color: #eeeeee;
+  font: inherit;
+}
+
+.layer-icon-button,
+.layer-actions button {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #eeeeee;
+  font: inherit;
+}
+
+.layer-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.layer-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.layer-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.layer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 1px;
+}
+
+.layer-actions button:disabled {
+  color: #777777;
+  cursor: default;
+}
+
+.confirm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.confirm-modal {
+  min-width: 220px;
+  padding: 14px;
+  background: #303030;
+  color: #eeeeee;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.confirm-modal p {
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-modal-actions button {
+  min-width: 64px;
+  min-height: 26px;
+  border: 0;
+  background: #474747;
+  color: #eeeeee;
+  font: inherit;
 }
 
 .empty-note {
