@@ -226,6 +226,7 @@ button {
 
 .top-ruler-mark {
   bottom: 2px;
+  padding-left: 2px;
   transform: translateX(-1px);
 }
 

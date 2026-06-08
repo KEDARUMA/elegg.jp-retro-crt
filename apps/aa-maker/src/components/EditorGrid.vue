@@ -90,6 +90,10 @@ const cornerStyle = computed(() => ({
   left: `${cornerPosition.value.x}px`,
   top: `${cornerPosition.value.y}px`,
 }));
+const visibleStartCell = computed(() => ({
+  x: clamp(Math.floor((visibleGridRect.value.left - gridPosition.value.x) / Math.max(1, getCellWidth())), 0, 79),
+  y: clamp(Math.floor((visibleGridRect.value.top - gridPosition.value.y) / Math.max(1, getCellHeight())), 0, 24),
+}));
 
 let resizeObserver: ResizeObserver | null = null;
 
@@ -168,6 +172,14 @@ function getLeftRulerMarkStyle(mark: number) {
   };
 }
 
+function shouldShowTopRulerMark(mark: number) {
+  return mark !== visibleStartCell.value.x;
+}
+
+function shouldShowLeftRulerMark(mark: number) {
+  return mark !== visibleStartCell.value.y;
+}
+
 function updateLayoutSize() {
   if (gridWrapRef.value && editorStageRef.value) {
     const wrapRect = gridWrapRef.value.getBoundingClientRect();
@@ -243,12 +255,18 @@ function clamp(value: number, min: number, max: number) {
       </div>
       <div class="ruler-corner" :style="cornerStyle" aria-hidden="true"></div>
       <div class="top-ruler" :style="topRulerStyle" aria-hidden="true">
-        <span v-for="mark in topRulerMarks" :key="mark" class="top-ruler-mark" :style="getTopRulerMarkStyle(mark)">
+        <span class="top-ruler-mark ruler-current-mark" :style="{ left: '0px' }">
+          {{ visibleStartCell.x }}
+        </span>
+        <span v-for="mark in topRulerMarks" v-show="shouldShowTopRulerMark(mark)" :key="mark" class="top-ruler-mark" :style="getTopRulerMarkStyle(mark)">
           {{ mark }}
         </span>
       </div>
       <div class="left-ruler" :style="leftRulerStyle" aria-hidden="true">
-        <span v-for="mark in leftRulerMarks" :key="mark" class="left-ruler-mark" :style="getLeftRulerMarkStyle(mark)">
+        <span class="left-ruler-mark ruler-current-mark" :style="{ top: '0px' }">
+          {{ visibleStartCell.y }}
+        </span>
+        <span v-for="mark in leftRulerMarks" v-show="shouldShowLeftRulerMark(mark)" :key="mark" class="left-ruler-mark" :style="getLeftRulerMarkStyle(mark)">
           {{ mark }}
         </span>
       </div>
