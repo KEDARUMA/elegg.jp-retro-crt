@@ -1,6 +1,8 @@
 :root {
   color: #111111;
   background: #d8d8d8;
+  --cell-width: 10px;
+  --cell-height: 18px;
   font-family: "MS Gothic", "Osaka-Mono", "Courier New", monospace;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -28,7 +30,7 @@ button {
   grid-template-areas:
     "menu menu menu"
     "tools editor side";
-  grid-template-columns: 48px minmax(636px, 1fr) 236px;
+  grid-template-columns: 48px minmax(636px, 1fr) 237px;
   grid-template-rows: 48px minmax(0, 1fr);
   gap: 0;
   width: 100%;
@@ -81,6 +83,7 @@ button {
   flex-direction: column;
   justify-content: space-between;
   align-items: stretch;
+  min-height: 834px;
   padding: 8px 6px;
   border: 1px solid #777777;
   border-top: 0;
@@ -123,6 +126,7 @@ button {
 
 .tool-button:disabled {
   cursor: default;
+  opacity: 0.45;
 }
 
 .selected-char {
@@ -141,11 +145,21 @@ button {
 .editor-panel {
   grid-area: editor;
   min-width: 0;
+  min-height: 834px;
   padding: 12px;
   border-right: 1px solid #777777;
   border-bottom: 1px solid #777777;
   background: #bdbdbd;
   overflow: auto;
+}
+
+.editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  width: min(100%, 860px);
+  margin-bottom: 8px;
+  color: #333333;
+  font-size: 12px;
 }
 
 .grid-wrap {
@@ -157,8 +171,8 @@ button {
 
 .aa-grid {
   display: grid;
-  grid-template-columns: repeat(80, 10px);
-  grid-template-rows: repeat(25, 18px);
+  grid-template-columns: repeat(80, var(--cell-width));
+  grid-template-rows: repeat(25, var(--cell-height));
   border-top: 1px solid #dddddd;
   border-left: 1px solid #dddddd;
   background: #ffffff;
@@ -166,15 +180,19 @@ button {
 }
 
 .aa-cell {
-  width: 10px;
-  height: 18px;
+  width: var(--cell-width);
+  height: var(--cell-height);
   border-right: 1px solid #eeeeee;
   border-bottom: 1px solid #eeeeee;
   color: #111111;
-  line-height: 18px;
+  line-height: var(--cell-height);
   text-align: center;
   white-space: pre;
   user-select: none;
+}
+
+.aa-cell.is-wide-tail {
+  color: transparent;
 }
 
 .aa-cell:nth-child(10n) {
@@ -192,6 +210,7 @@ button {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  min-height: 834px;
   padding: 8px;
   border: 1px solid #777777;
   border-top: 0;
@@ -243,10 +262,22 @@ button {
   padding: 8px;
 }
 
+.cell-preview,
 .empty-cell-preview {
   width: 32px;
   height: 32px;
   border: 1px solid #777777;
+}
+
+.cell-preview {
+  background: #ffffff;
+  color: #000000;
+  font-size: 20px;
+  line-height: 30px;
+  text-align: center;
+}
+
+.empty-cell-preview {
   background:
     linear-gradient(135deg, transparent 45%, #777777 46%, #777777 54%, transparent 55%),
     #d0d0d0;
