@@ -198,6 +198,7 @@ export function useAaMaker() {
         w: "--",
         h: "--",
         char: null,
+        code: "U+----",
         fgc: "------",
         bgc: documentModel.canvasBGC,
       };
@@ -211,6 +212,7 @@ export function useAaMaker() {
       w: toolState.selection.kind === "rect" ? String(toolState.selection.width) : "--",
       h: toolState.selection.kind === "rect" ? String(toolState.selection.height) : "--",
       char: cell?.char ?? null,
+      code: cell ? getUnicodeCodeLabel(cell.char) : "U+----",
       fgc: cell?.fgc ?? "------",
       bgc: cell?.bgc ?? documentModel.canvasBGC,
     };
@@ -535,6 +537,11 @@ export function useAaMaker() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getUnicodeCodeLabel(char: string) {
+  const code = char.codePointAt(0) ?? 0;
+  return `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
 function loadStoredHistoryPalette() {

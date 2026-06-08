@@ -5,6 +5,7 @@ type InfoState = {
   w: string;
   h: string;
   char: string | null;
+  code: string;
   fgc: string;
   bgc: string;
 };
@@ -27,6 +28,7 @@ defineProps<{
       <div v-if="info.char === null" class="empty-cell-preview" aria-label="Empty cell preview"></div>
       <div v-else class="cell-preview" aria-label="Cell preview">{{ info.char }}</div>
       <div>
+        <div>{{ info.code }}</div>
         <div>FC:{{ info.fgc }}</div>
         <div>BC:{{ info.bgc }}</div>
       </div>

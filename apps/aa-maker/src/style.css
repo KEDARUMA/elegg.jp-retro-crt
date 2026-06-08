@@ -4,7 +4,8 @@
   --cell-width: 8px;
   --cell-height: 16px;
   --cell-font-size: 16px;
-  font-family: "MS Gothic", "Osaka-Mono", "Courier New", monospace;
+  --aa-font-family: "MS Gothic", monospace;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -31,14 +32,15 @@ button {
   display: grid;
   grid-template-areas:
     "menu menu menu"
-    "tools editor side";
+    "tools editor side"
+    "status status status";
   grid-template-columns: 48px minmax(636px, 1fr) 237px;
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: 26px minmax(0, 1fr) 26px;
   gap: 0;
   height: 100vh;
   width: 100%;
   min-height: 0;
-  padding: 6px;
+  padding: 0;
   background: #c8c8c8;
 }
 
@@ -47,37 +49,43 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-height: 48px;
-  padding: 6px 10px;
-  border: 1px solid #777777;
+  gap: 0;
+  min-height: 26px;
+  padding: 0;
   background: #eeeeee;
 }
 
 .menu-list {
   display: flex;
-  gap: 8px;
+  gap: 0;
 }
 
 .menu-list button,
 .palette-button,
 .tool-button {
-  border: 1px solid #777777;
+  border: 0;
   background: #f8f8f8;
   color: #111111;
 }
 
 .menu-list button {
-  min-width: 72px;
-  min-height: 30px;
+  min-width: 64px;
+  min-height: 26px;
+  padding: 0 12px;
+  background: transparent;
+  color: #111111;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.status-bar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 12px;
-  font-size: 13px;
+.menu-list button:hover,
+.menu-list button:focus-visible {
+  background: #dddddd;
+  outline: 0;
+}
+
+.menu-list button:active {
+  background: #d0d0d0;
 }
 
 .toolbox {
@@ -87,16 +95,14 @@ button {
   justify-content: space-between;
   align-items: stretch;
   min-height: 0;
-  padding: 8px 6px;
-  border: 1px solid #777777;
-  border-top: 0;
+  padding: 0;
   background: #eeeeee;
 }
 
 .tool-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
 }
 
 .tool-button {
@@ -136,9 +142,9 @@ button {
   display: block;
   width: 34px;
   height: 34px;
-  border: 1px solid #777777;
   background: #ffffff;
   color: #000000;
+  font-family: var(--aa-font-family);
   font-size: 20px;
   line-height: 32px;
   text-align: center;
@@ -151,28 +157,16 @@ button {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 12px;
-  border-right: 1px solid #777777;
-  border-bottom: 1px solid #777777;
+  padding: 0;
   background: #bdbdbd;
   overflow: hidden;
-}
-
-.editor-toolbar {
-  display: flex;
-  justify-content: space-between;
-  width: min(100%, 860px);
-  margin-bottom: 8px;
-  color: #333333;
-  font-size: 12px;
 }
 
 .grid-wrap {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 14px;
-  border: 1px solid #777777;
+  padding: 0;
   background: #ffffff;
   overflow: auto;
 }
@@ -193,6 +187,7 @@ button {
   height: var(--cell-height);
   padding: 0;
   color: #111111;
+  font-family: var(--aa-font-family);
   font-size: var(--cell-font-size);
   line-height: var(--cell-height);
   text-align: center;
@@ -250,15 +245,11 @@ button {
   min-width: 0;
   min-height: 0;
   padding: 8px;
-  border: 1px solid #777777;
-  border-top: 0;
-  border-left: 0;
   background: #eeeeee;
   overflow: auto;
 }
 
 .panel-section {
-  border: 1px solid #777777;
   background: #f8f8f8;
 }
 
@@ -269,7 +260,6 @@ button {
 .panel-section h2 {
   margin: 0;
   padding: 6px 8px;
-  border-bottom: 1px solid #777777;
   background: #dddddd;
   font-size: 14px;
 }
@@ -283,7 +273,6 @@ button {
   grid-template-columns: repeat(4, auto 1fr);
   gap: 4px 6px;
   padding: 8px;
-  border-bottom: 1px solid #dddddd;
 }
 
 .info-grid span {
@@ -305,12 +294,12 @@ button {
 .empty-cell-preview {
   width: 32px;
   height: 32px;
-  border: 1px solid #777777;
 }
 
 .cell-preview {
   background: #ffffff;
   color: #000000;
+  font-family: var(--aa-font-family);
   font-size: 20px;
   line-height: 30px;
   text-align: center;
@@ -333,7 +322,7 @@ button {
 
 .palette-select {
   min-width: 0;
-  border: 1px solid #777777;
+  border: 0;
   background: #ffffff;
   color: #111111;
   font: inherit;
@@ -366,9 +355,8 @@ button {
 }
 
 .history-palette-group + .history-palette-group {
-  margin-top: 8px;
+  margin-top: 0;
   padding-top: 8px;
-  border-top: 1px solid #dddddd;
 }
 
 .palette-button {
@@ -400,6 +388,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--aa-font-family);
   font-size: 16px;
   line-height: 16px;
   text-align: center;
@@ -421,7 +410,7 @@ button {
 .palette-text-input {
   width: 100%;
   min-height: 24px;
-  border: 1px solid #777777;
+  border: 0;
   background: #ffffff;
   color: #111111;
   font: inherit;
@@ -430,8 +419,7 @@ button {
 .unicode-scroll {
   position: relative;
   height: 260px;
-  margin-top: 8px;
-  border: 1px solid #777777;
+  margin-top: 0;
   background: #f8f8f8;
   overflow: auto;
 }
@@ -453,7 +441,7 @@ button {
 }
 
 .unicode-row:nth-child(16n + 1) {
-  border-top: 1px solid #dddddd;
+  border-top: 0;
 }
 
 .unicode-row-code {
@@ -474,9 +462,8 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  margin: 8px;
+  margin: 0;
   padding: 6px 8px;
-  border: 1px solid #777777;
   font-size: 13px;
 }
 
@@ -484,4 +471,17 @@ button {
   padding: 10px 8px;
   color: #555555;
   font-size: 13px;
+}
+
+.bottom-status-bar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  min-width: 0;
+  padding: 0;
+  background: #eeeeee;
+  color: #333333;
+  font-size: 12px;
 }

@@ -10,7 +10,7 @@ const aaMaker = useAaMaker();
 
 <template>
   <main class="aa-maker-shell" aria-label="AA Maker">
-    <TopMenu :canvas-bgc="aaMaker.documentModel.canvasBGC" />
+    <TopMenu />
     <Toolbox
       :tools="aaMaker.tools"
       :active-tool="aaMaker.toolState.activeTool"
@@ -19,7 +19,6 @@ const aaMaker = useAaMaker();
     />
     <EditorGrid
       :cells="aaMaker.gridCells"
-      :zoom-label="aaMaker.zoomLabel.value"
       :get-cell-text="aaMaker.getCellText"
       :get-cell-class="aaMaker.getCellClass"
       :get-cell-style="aaMaker.getCellStyle"
@@ -40,6 +39,7 @@ const aaMaker = useAaMaker();
       :info="aaMaker.info.value"
       :layers="aaMaker.documentModel.layers"
       :active-layer-id="aaMaker.documentModel.activeLayerId"
+      :active-tool="aaMaker.toolState.activeTool"
       @select-palette="aaMaker.selectPalette"
       @select-char="aaMaker.selectPaletteChar"
       @keyboard-input="aaMaker.handleKeyboardInput"
@@ -47,5 +47,10 @@ const aaMaker = useAaMaker();
       @update-unicode-scroll-offset="aaMaker.updateUnicodeScrollOffset"
       @assign-history-char="aaMaker.assignHistoryChar"
     />
+    <footer class="bottom-status-bar" aria-label="Status">
+      <span>80 x 25</span>
+      <span>{{ aaMaker.zoomLabel.value }}</span>
+      <span>Canvas Color: {{ aaMaker.documentModel.canvasBGC }}</span>
+    </footer>
   </main>
 </template>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CharacterPalette from "./CharacterPalette.vue";
 import InfoPanel from "./InfoPanel.vue";
-import type { Layer } from "../model/types";
+import type { Layer, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -44,6 +44,7 @@ type InfoState = {
   w: string;
   h: string;
   char: string | null;
+  code: string;
   fgc: string;
   bgc: string;
 };
@@ -57,6 +58,7 @@ defineProps<{
   info: InfoState;
   layers: Layer[];
   activeLayerId: string;
+  activeTool: Tool;
 }>();
 
 defineEmits<{
@@ -73,6 +75,7 @@ defineEmits<{
   <aside class="side-panel" aria-label="Sidebar">
     <InfoPanel :info="info" />
     <CharacterPalette
+      v-if="activeTool !== 'stamp'"
       :palettes="palettes"
       :active-palette="activePalette"
       :active-palette-id="activePaletteId"
@@ -85,6 +88,10 @@ defineEmits<{
       @update-unicode-scroll-offset="(scrollOffset) => $emit('updateUnicodeScrollOffset', scrollOffset)"
       @assign-history-char="(index) => $emit('assignHistoryChar', index)"
     />
+    <section v-else class="panel-section panel-section--grow">
+      <h2>Stamp</h2>
+      <div class="empty-note">MVP 対象外</div>
+    </section>
 
     <section class="panel-section">
       <h2>Layer</h2>
@@ -99,9 +106,5 @@ defineEmits<{
       </div>
     </section>
 
-    <section class="panel-section panel-section--grow">
-      <h2>Stamp</h2>
-      <div class="empty-note">MVP 対象外</div>
-    </section>
   </aside>
 </template>

@@ -6,7 +6,6 @@ type GridCell = {
 
 defineProps<{
   cells: GridCell[];
-  zoomLabel: string;
   getCellText: (x: number, y: number) => string;
   getCellClass: (x: number, y: number) => string[];
   getCellStyle: (x: number, y: number) => Record<string, string>;
@@ -25,10 +24,6 @@ defineEmits<{
 
 <template>
   <section class="editor-panel" aria-label="Editor" @wheel="$emit('gridWheel', $event)">
-    <div class="editor-toolbar">
-      <span>80 x 25</span>
-      <span>{{ zoomLabel }}</span>
-    </div>
     <div class="grid-wrap">
       <div class="aa-grid" role="grid" aria-label="80 by 25 ASCII art grid">
         <div
