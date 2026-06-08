@@ -34,7 +34,7 @@ defineEmits<{
         :aria-label="tool.label"
         @click="$emit('selectTool', tool.id)"
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" v-html="tool.icon"></svg>
+        <span class="tool-icon" aria-hidden="true" v-html="tool.icon"></span>
       </button>
     </div>
     <SelectedChar :selected-char="selectedChar" />

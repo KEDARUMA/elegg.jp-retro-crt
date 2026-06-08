@@ -1,4 +1,12 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import eraserIcon from "../assets/icons/eraser.svg?raw";
+import eyedropperIcon from "../assets/icons/eyedropper.svg?raw";
+import moveIcon from "../assets/icons/move-alt.svg?raw";
+import paletteIcon from "../assets/icons/palette.svg?raw";
+import penIcon from "../assets/icons/pen.svg?raw";
+import selectIcon from "../assets/icons/select.svg?raw";
+import stampIcon from "../assets/icons/stamp.svg?raw";
+import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
 import { composeDocument } from "../model/composeLayers";
 import { createEmptyDocument, createInitialToolState } from "../model/createDocument";
@@ -91,49 +99,49 @@ export function useAaMaker() {
     {
       id: "move",
       label: "移動",
-      icon: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
+      icon: moveIcon,
       implemented: false,
     },
     {
       id: "select",
       label: "範囲選択",
-      icon: '<rect x="5" y="5" width="14" height="14" rx="1"/><path d="M8 5v14M16 5v14M5 8h14M5 16h14"/>',
+      icon: selectIcon,
       implemented: true,
     },
     {
       id: "eyedropper",
       label: "スポイト",
-      icon: '<path d="M14 4l6 6M13 5l7 7-9 9H5v-6zM7 17l3 3"/>',
+      icon: eyedropperIcon,
       implemented: true,
     },
     {
       id: "pen",
       label: "ペン",
-      icon: '<path d="M16 4l4 4-11 11H5v-4zM13 7l4 4"/>',
+      icon: penIcon,
       implemented: true,
     },
     {
       id: "eraser",
       label: "消しゴム",
-      icon: '<path d="M5 15l8-8 6 6-6 6H8zM11 19h9M9 12l6 6"/>',
+      icon: eraserIcon,
       implemented: true,
     },
     {
       id: "text",
       label: "テキスト",
-      icon: '<path d="M5 5h14M12 5v16M8 21h8"/>',
+      icon: textIcon,
       implemented: false,
     },
     {
       id: "stamp",
       label: "スタンプ",
-      icon: '<path d="M9 4h6v7l3 3v6H6v-6l3-3zM7 17h10"/>',
+      icon: stampIcon,
       implemented: false,
     },
     {
       id: "range-color",
       label: "範囲カラー",
-      icon: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 14h16M14 4v16"/>',
+      icon: paletteIcon,
       implemented: false,
     },
   ] as const;

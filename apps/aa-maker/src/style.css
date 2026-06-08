@@ -125,14 +125,18 @@ button {
   content: "";
 }
 
-.tool-button svg {
+.tool-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 22px;
   height: 22px;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+}
+
+.tool-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .tool-button:disabled {
