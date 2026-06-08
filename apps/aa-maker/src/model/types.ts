@@ -61,6 +61,7 @@ export type Tool = "move" | "select" | "eyedropper" | "pen" | "eraser" | "text" 
 export type ToolState = {
   activeTool: Tool;
   selectedChar: string | null;
+  selectedCharWidth: 1 | 2;
   selectedFGC: Color;
   selectedBGC: Color | null;
   selection: Selection;

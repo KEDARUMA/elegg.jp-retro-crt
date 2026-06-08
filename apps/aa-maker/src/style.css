@@ -1,8 +1,9 @@
 :root {
   color: #111111;
   background: #d8d8d8;
-  --cell-width: 10px;
-  --cell-height: 18px;
+  --cell-width: 8px;
+  --cell-height: 16px;
+  --cell-font-size: 16px;
   font-family: "MS Gothic", "Osaka-Mono", "Courier New", monospace;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -15,10 +16,11 @@
 html,
 body,
 #app {
+  height: 100%;
   width: 100%;
   min-width: 960px;
-  min-height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 button {
@@ -33,8 +35,9 @@ button {
   grid-template-columns: 48px minmax(636px, 1fr) 237px;
   grid-template-rows: 48px minmax(0, 1fr);
   gap: 0;
+  height: 100vh;
   width: 100%;
-  min-height: 100vh;
+  min-height: 0;
   padding: 6px;
   background: #c8c8c8;
 }
@@ -83,7 +86,7 @@ button {
   flex-direction: column;
   justify-content: space-between;
   align-items: stretch;
-  min-height: 834px;
+  min-height: 0;
   padding: 8px 6px;
   border: 1px solid #777777;
   border-top: 0;
@@ -144,13 +147,15 @@ button {
 
 .editor-panel {
   grid-area: editor;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  min-height: 834px;
+  min-height: 0;
   padding: 12px;
   border-right: 1px solid #777777;
   border-bottom: 1px solid #777777;
   background: #bdbdbd;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .editor-toolbar {
@@ -163,18 +168,22 @@ button {
 }
 
 .grid-wrap {
-  width: max-content;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   padding: 14px;
   border: 1px solid #777777;
   background: #ffffff;
+  overflow: auto;
 }
 
 .aa-grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(80, var(--cell-width));
   grid-template-rows: repeat(25, var(--cell-height));
-  border-top: 1px solid #dddddd;
-  border-left: 1px solid #dddddd;
+  width: calc(var(--cell-width) * 80);
+  height: calc(var(--cell-height) * 25);
   background: #ffffff;
   user-select: none;
 }
@@ -182,26 +191,55 @@ button {
 .aa-cell {
   width: var(--cell-width);
   height: var(--cell-height);
-  border-right: 1px solid #eeeeee;
-  border-bottom: 1px solid #eeeeee;
+  padding: 0;
   color: #111111;
+  font-size: var(--cell-font-size);
   line-height: var(--cell-height);
   text-align: center;
   white-space: pre;
   user-select: none;
 }
 
+.aa-grid-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-top: 1px solid var(--grid-line-color);
+  border-left: 1px solid var(--grid-line-color);
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      transparent 0 calc(var(--cell-width) - 1px),
+      var(--grid-line-color) calc(var(--cell-width) - 1px) var(--cell-width)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc(var(--cell-height) - 1px),
+      var(--grid-line-color) calc(var(--cell-height) - 1px) var(--cell-height)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0 calc((var(--cell-width) * 10) - 1px),
+      var(--grid-line-major-color) calc((var(--cell-width) * 10) - 1px) calc(var(--cell-width) * 10)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc((var(--cell-height) * 10) - 1px),
+      var(--grid-line-major-color) calc((var(--cell-height) * 10) - 1px) calc(var(--cell-height) * 10)
+    );
+  pointer-events: none;
+}
+
+.aa-selection {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid #111111;
+  background: rgba(0, 96, 255, 0.18);
+  pointer-events: none;
+}
+
 .aa-cell.is-wide-tail {
   color: transparent;
-}
-
-.aa-cell:nth-child(10n) {
-  border-right-color: #c8c8c8;
-}
-
-.aa-cell:nth-child(n + 721):nth-child(-n + 800),
-.aa-cell:nth-child(n + 1521):nth-child(-n + 1600) {
-  border-bottom-color: #c8c8c8;
 }
 
 .side-panel {
@@ -210,12 +248,13 @@ button {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  min-height: 834px;
+  min-height: 0;
   padding: 8px;
   border: 1px solid #777777;
   border-top: 0;
   border-left: 0;
   background: #eeeeee;
+  overflow: auto;
 }
 
 .panel-section {
@@ -285,7 +324,7 @@ button {
 
 .palette-select-label {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   padding: 8px 8px 0;
@@ -300,23 +339,71 @@ button {
   font: inherit;
 }
 
+.palette-code {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .char-palette {
-  display: grid;
-  grid-template-columns: repeat(var(--palette-columns), 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
   gap: 0;
   padding: 8px;
 }
 
+.history-palette {
+  padding: 8px;
+}
+
+.history-palette-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  width: 100%;
+}
+
+.history-palette-group + .history-palette-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #dddddd;
+}
+
 .palette-button {
-  min-width: 0;
-  min-height: 22px;
+  position: relative;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   outline: 1px solid transparent;
   background: #f8f8f8;
-  line-height: 22px;
-  text-align: center;
+  overflow: visible;
   user-select: none;
+}
+
+.palette-button:disabled {
+  background: #eeeeee;
+  cursor: default;
+}
+
+.history-palette .palette-button {
+  flex-basis: calc(100% / 16);
+  width: calc(100% / 16);
+}
+
+.palette-button-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
 }
 
 .palette-button.is-selected {
@@ -324,6 +411,58 @@ button {
   z-index: 1;
   outline: 2px solid #111111;
   background: #ffffff;
+}
+
+.keyboard-palette,
+.unicode-palette {
+  padding: 8px;
+}
+
+.palette-text-input {
+  width: 100%;
+  min-height: 24px;
+  border: 1px solid #777777;
+  background: #ffffff;
+  color: #111111;
+  font: inherit;
+}
+
+.unicode-scroll {
+  position: relative;
+  height: 260px;
+  margin-top: 8px;
+  border: 1px solid #777777;
+  background: #f8f8f8;
+  overflow: auto;
+}
+
+.unicode-spacer {
+  position: relative;
+}
+
+.unicode-rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.unicode-row {
+  display: flex;
+  height: 16px;
+  align-items: center;
+}
+
+.unicode-row:nth-child(16n + 1) {
+  border-top: 1px solid #dddddd;
+}
+
+.unicode-row-code {
+  width: 56px;
+  padding-left: 4px;
+  color: #555555;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
 .layer-item.is-active {

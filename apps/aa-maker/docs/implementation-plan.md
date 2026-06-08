@@ -8,7 +8,7 @@
 - Penpot の画面レイアウトを参照済み。
 - `docs/data-model.md` にデータモデル設計を作成済み。
 - アプリ本体の雛形は未作成。
-- フレームワークは未決定。
+- フレームワークは Vue 3 + TypeScript + Vite に決定済み。
 
 次に行う作業は、アプリ雛形作成。
 実装は View 先行で進める。
@@ -121,14 +121,18 @@ MVP 実装順:
 採用:
 
 - Vite
+- Vue 3
 - TypeScript
 
 構成:
 
-- Vanilla TypeScript
+- Vue 3
 - `apps/aa-maker/package.json`
 - `apps/aa-maker/index.html`
 - `apps/aa-maker/src/main.ts`
+- `apps/aa-maker/src/App.vue`
+- `apps/aa-maker/src/components/`
+- `apps/aa-maker/src/composables/`
 - `apps/aa-maker/src/style.css`
 
 完了条件:
@@ -217,7 +221,7 @@ MVP 実装順:
 
 目的: 選択中文字を UI から変更できるようにする。
 
-状態: 未着手
+状態: 完了
 
 実装対象:
 
@@ -228,10 +232,10 @@ MVP 実装順:
 
 完了条件:
 
-- [ ] キャラパレットクリックで選択中文字が変わる
-- [ ] スポイトでヒストリーが更新される
-- [ ] 同じキャラが連続でヒストリー追加されない
-- [ ] Unicode 文字表が仮想スクロールで表示される
+- [x] キャラパレットクリックで選択中文字が変わる
+- [x] スポイトでヒストリーが更新される
+- [x] 同じキャラが連続でヒストリー追加されない
+- [x] Unicode 文字表が仮想スクロールで表示される
 
 ### Phase 8: レイヤー実装
 

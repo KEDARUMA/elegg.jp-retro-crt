@@ -24,6 +24,7 @@ export function createInitialToolState(): ToolState {
   return {
     activeTool: "pen",
     selectedChar: NBSP,
+    selectedCharWidth: 1,
     selectedFGC: DEFAULT_SELECTED_FGC,
     selectedBGC: null,
     selection: { kind: "none" },
