@@ -8,10 +8,11 @@ import selectIcon from "../assets/icons/select.svg?raw";
 import stampIcon from "../assets/icons/stamp.svg?raw";
 import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
+import stamps from "../data/stamps.json";
 import { composeDocument } from "../model/composeLayers";
 import { createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
-import type { Layer, Tool } from "../model/types";
+import type { Layer, Stamp, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -48,10 +49,29 @@ type UnicodePalette = {
 
 type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette;
 
+type StampSet = {
+  id: string;
+  name: string;
+  stamps: Stamp[];
+};
+
+type StampPreviewCell = {
+  x: number;
+  y: number;
+  text: string;
+  style: Record<string, string>;
+  className: string[];
+};
+
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
 const HISTORY_STORAGE_KEY = "aa-maker.char-palette.history.v1";
+const stampSetNames: Record<string, string> = {
+  gikoneko: "Giko Neko",
+  monar: "Monar",
+  "speech-bubble": "Speech Bubble",
+};
 
 type StoredHistoryPalette = {
   history?: unknown;
@@ -86,6 +106,9 @@ export function useAaMaker() {
     },
   ]);
   const activePaletteId = ref(palettes[0]?.id ?? "");
+  const stampSets = createStampSets(stamps as Stamp[]);
+  const activeStampSetId = ref(stampSets[0]?.id ?? "");
+  const activeStampId = ref(stampSets[0]?.stamps[0]?.id ?? "");
   const documentModel = reactive(createEmptyDocument());
   const toolState = reactive(createInitialToolState());
   const gridZoom = ref(toolState.zoom);
@@ -136,7 +159,7 @@ export function useAaMaker() {
       id: "stamp",
       label: "スタンプ",
       icon: stampIcon,
-      implemented: false,
+      implemented: true,
     },
     {
       id: "range-color",
@@ -152,6 +175,8 @@ export function useAaMaker() {
   }));
 
   const activePalette = computed(() => palettes.find((palette) => palette.id === activePaletteId.value) ?? palettes[0]);
+  const activeStampSet = computed(() => stampSets.find((stampSet) => stampSet.id === activeStampSetId.value) ?? stampSets[0] ?? null);
+  const activeStamp = computed(() => activeStampSet.value?.stamps.find((stamp) => stamp.id === activeStampId.value) ?? activeStampSet.value?.stamps[0] ?? null);
   const zoomLabel = computed(() => `Zoom: ${Math.round(gridZoom.value * 100)}%`);
   const selectionStyle = computed(() => {
     if (toolState.selection.kind !== "rect") {
@@ -196,6 +221,13 @@ export function useAaMaker() {
   });
 
   const compositedGrid = computed(() => composeDocument(documentModel));
+  const stampPreviewCells = computed(() => {
+    if (toolState.activeTool !== "stamp" || !activeStamp.value || !cursorPosition.value) {
+      return [];
+    }
+
+    return getStampPreviewCells(activeStamp.value, cursorPosition.value.x, cursorPosition.value.y);
+  });
   const layerList = computed(() => [...documentModel.layers].reverse());
   const info = computed(() => {
     const position = cursorPosition.value;
@@ -248,6 +280,27 @@ export function useAaMaker() {
 
   function selectPalette(paletteId: string) {
     activePaletteId.value = paletteId;
+  }
+
+  function selectStampSet(stampSetId: string) {
+    const stampSet = stampSets.find((candidate) => candidate.id === stampSetId);
+
+    if (!stampSet) {
+      return;
+    }
+
+    activeStampSetId.value = stampSet.id;
+    activeStampId.value = stampSet.stamps[0]?.id ?? "";
+  }
+
+  function selectStamp(stampId: string) {
+    const stamp = activeStampSet.value?.stamps.find((candidate) => candidate.id === stampId);
+
+    if (!stamp) {
+      return;
+    }
+
+    activeStampId.value = stamp.id;
   }
 
   function selectLayer(layerId: string) {
@@ -401,6 +454,11 @@ export function useAaMaker() {
       return;
     }
 
+    if (toolState.activeTool === "stamp") {
+      applyTool(x, y);
+      return;
+    }
+
     if (toolState.activeTool === "select") {
       isDrawing.value = true;
       selectionAnchor.value = { x, y };
@@ -461,6 +519,10 @@ export function useAaMaker() {
 
     if (toolState.activeTool === "eyedropper") {
       pickChar(x, y);
+    }
+
+    if (toolState.activeTool === "stamp") {
+      placeStamp(activeLayer, x, y);
     }
 
     cursorPosition.value = { x, y };
@@ -584,6 +646,84 @@ export function useAaMaker() {
     return style;
   }
 
+  function getStampPreviewCells(stamp: Stamp, originX: number, originY: number): StampPreviewCell[] {
+    const previewCells: StampPreviewCell[] = [];
+
+    stamp.cells.forEach((row, rowIndex) => {
+      const y = originY + rowIndex;
+
+      if (y < 0 || y >= GRID_ROWS) {
+        return;
+      }
+
+      row.forEach((cell, columnIndex) => {
+        const x = originX + columnIndex;
+
+        if (!cell || x < 0 || x >= GRID_COLUMNS) {
+          return;
+        }
+
+        previewCells.push({
+          x,
+          y,
+          text: cell.char === " " ? "\u00a0" : cell.char,
+          style: {
+            color: `#${resolveStampFGC(cell.fgc)}`,
+            backgroundColor: cell.bgc ? `#${cell.bgc}` : "transparent",
+          },
+          className: cell.width === 2 ? ["is-wide-head"] : [],
+        });
+      });
+    });
+
+    return previewCells;
+  }
+
+  function placeStamp(layer: Layer, originX: number, originY: number) {
+    const stamp = activeStamp.value;
+
+    if (!stamp) {
+      return;
+    }
+
+    const clippedWidth = clamp(stamp.width, 0, GRID_COLUMNS - originX);
+    const clippedHeight = clamp(stamp.height, 0, GRID_ROWS - originY);
+
+    if (clippedWidth <= 0 || clippedHeight <= 0) {
+      return;
+    }
+
+    stamp.cells.forEach((row, rowIndex) => {
+      const y = originY + rowIndex;
+
+      if (y < 0 || y >= GRID_ROWS) {
+        return;
+      }
+
+      row.forEach((cell, columnIndex) => {
+        const x = originX + columnIndex;
+
+        if (!cell || x < 0 || x >= GRID_COLUMNS) {
+          return;
+        }
+
+        placeChar(layer, x, y, cell.char, resolveStampFGC(cell.fgc), cell.bgc, cell.width);
+      });
+    });
+
+    toolState.selection = {
+      kind: "rect",
+      x: originX,
+      y: originY,
+      width: clippedWidth,
+      height: clippedHeight,
+    };
+  }
+
+  function resolveStampFGC(fgc: string | null) {
+    return fgc ?? (isDarkColor(documentModel.canvasBGC) ? "ffffff" : "000000");
+  }
+
   function getEditableActiveLayer(): Layer | null {
     const layer = documentModel.layers.find((candidate) => candidate.id === documentModel.activeLayerId);
 
@@ -618,6 +758,10 @@ export function useAaMaker() {
   return {
     activePalette,
     activePaletteId,
+    activeStamp,
+    activeStampId,
+    activeStampSet,
+    activeStampSetId,
     documentModel,
     gridCells,
     gridLineStyle,
@@ -626,6 +770,8 @@ export function useAaMaker() {
     palettes,
     selectedPaletteCode,
     selectionStyle,
+    stampPreviewCells,
+    stampSets,
     toolState,
     tools,
     zoomLabel,
@@ -645,6 +791,8 @@ export function useAaMaker() {
     renameLayer,
     selectPalette,
     selectPaletteChar,
+    selectStamp,
+    selectStampSet,
     selectLayer,
     selectTool,
     stopDrawing,
@@ -727,6 +875,23 @@ function normalizeHistoryChars(value: unknown, fallback: (string | null)[]) {
   }
 
   return Array.from({ length: HISTORY_CELL_COUNT }, (_, index) => (typeof value[index] === "string" ? value[index] : null));
+}
+
+function createStampSets(sourceStamps: Stamp[]): StampSet[] {
+  const groupedStamps = new Map<string, Stamp[]>();
+
+  for (const stamp of sourceStamps) {
+    const stampSetId = stamp.id.replace(/-\d+$/, "");
+    const stampSet = groupedStamps.get(stampSetId) ?? [];
+    stampSet.push(stamp);
+    groupedStamps.set(stampSetId, stampSet);
+  }
+
+  return Array.from(groupedStamps, ([id, items]) => ({
+    id,
+    name: stampSetNames[id] ?? id,
+    stamps: items,
+  }));
 }
 
 function isDarkColor(hexColor: string) {

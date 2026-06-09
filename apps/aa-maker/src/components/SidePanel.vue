@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import eyeClosedIcon from "../assets/icons/eye-closed.svg?raw";
 import eyeIcon from "../assets/icons/eye.svg?raw";
 import lockOpenIcon from "../assets/icons/lock-open.svg?raw";
@@ -9,7 +9,7 @@ import trashIcon from "../assets/icons/trash.svg?raw";
 import CharacterPalette from "./CharacterPalette.vue";
 import ConfirmModal from "./ConfirmModal.vue";
 import InfoPanel from "./InfoPanel.vue";
-import type { Layer, Tool } from "../model/types";
+import type { Layer, Stamp, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -46,6 +46,12 @@ type UnicodePalette = {
 
 type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette;
 
+type StampSet = {
+  id: string;
+  name: string;
+  stamps: Stamp[];
+};
+
 type InfoState = {
   x: string;
   y: string;
@@ -57,7 +63,7 @@ type InfoState = {
   bgc: string;
 };
 
-defineProps<{
+const props = defineProps<{
   palettes: Palette[];
   activePalette: Palette;
   activePaletteId: string;
@@ -67,11 +73,16 @@ defineProps<{
   layers: Layer[];
   activeLayerId: string;
   activeTool: Tool;
+  stampSets: StampSet[];
+  activeStampSetId: string;
+  activeStampId: string;
 }>();
 
 const emit = defineEmits<{
   selectPalette: [paletteId: string];
   selectChar: [char: string, width: 1 | 2];
+  selectStampSet: [stampSetId: string];
+  selectStamp: [stampId: string];
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
@@ -88,6 +99,8 @@ const emit = defineEmits<{
 const editingLayerId = ref<string | null>(null);
 const editingLayerName = ref("");
 const isDeleteConfirmOpen = ref(false);
+const activeStampSetStamps = computed(() => props.stampSets.find((stampSet) => stampSet.id === props.activeStampSetId)?.stamps ?? []);
+const activeStampSetItemCount = computed(() => activeStampSetStamps.value.length);
 
 function startLayerDrag(event: DragEvent, layerId: string) {
   event.dataTransfer?.setData("text/plain", layerId);
@@ -138,6 +151,16 @@ function confirmDeleteActiveLayer() {
 function cancelDeleteActiveLayer() {
   isDeleteConfirmOpen.value = false;
 }
+
+function handleStampSetChange(event: Event) {
+  if (event.target instanceof HTMLSelectElement) {
+    emit("selectStampSet", event.target.value);
+  }
+}
+
+function getStampRows(stamp: Stamp) {
+  return stamp.cells.map((row) => row.map((cell) => cell?.char ?? " ").join(""));
+}
 </script>
 
 <template>
@@ -159,7 +182,27 @@ function cancelDeleteActiveLayer() {
     />
     <section v-else class="panel-section panel-section--grow">
       <h2>Stamp</h2>
-      <div class="empty-note">MVP 対象外</div>
+      <label class="palette-select-label">
+        <select class="palette-select" :value="activeStampSetId" @change="handleStampSetChange">
+          <option v-for="stampSet in stampSets" :key="stampSet.id" :value="stampSet.id">
+            {{ stampSet.name }}
+          </option>
+        </select>
+        <span class="palette-code">{{ activeStampSetItemCount }} items</span>
+      </label>
+      <div class="stamp-list">
+        <button
+          v-for="stamp in activeStampSetStamps"
+          :key="stamp.id"
+          class="stamp-list-item"
+          :class="{ 'is-selected': stamp.id === activeStampId }"
+          type="button"
+          @click="$emit('selectStamp', stamp.id)"
+        >
+          <span class="stamp-list-name">{{ stamp.name }}</span>
+          <pre class="stamp-list-preview">{{ getStampRows(stamp).join("\n") }}</pre>
+        </button>
+      </div>
     </section>
 
     <section class="panel-section">

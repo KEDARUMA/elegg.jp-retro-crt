@@ -6,6 +6,14 @@ type GridCell = {
   y: number;
 };
 
+type StampPreviewCell = {
+  x: number;
+  y: number;
+  text: string;
+  style: Record<string, string>;
+  className: string[];
+};
+
 defineProps<{
   cells: GridCell[];
   getCellText: (x: number, y: number) => string;
@@ -13,6 +21,7 @@ defineProps<{
   getCellStyle: (x: number, y: number) => Record<string, string>;
   gridLineStyle: Record<string, string>;
   selectionStyle: Record<string, string> | null;
+  stampPreviewCells: StampPreviewCell[];
 }>();
 
 const emit = defineEmits<{
@@ -251,6 +260,20 @@ function clamp(value: number, min: number, max: number) {
           </div>
           <div class="aa-grid-lines" :style="gridLineStyle" aria-hidden="true"></div>
           <div v-if="selectionStyle" class="aa-selection" :style="selectionStyle" aria-hidden="true"></div>
+          <div
+            v-for="previewCell in stampPreviewCells"
+            :key="`${previewCell.x},${previewCell.y}`"
+            class="stamp-preview-cell"
+            :class="previewCell.className"
+            :style="{
+              ...previewCell.style,
+              left: `calc(var(--cell-width) * ${previewCell.x})`,
+              top: `calc(var(--cell-height) * ${previewCell.y})`,
+            }"
+            aria-hidden="true"
+          >
+            {{ previewCell.text }}
+          </div>
         </div>
       </div>
       <div class="ruler-corner" :style="cornerStyle" aria-hidden="true"></div>

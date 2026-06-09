@@ -315,7 +315,7 @@ button {
 
 .aa-selection {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   border: 1px solid #111111;
   background: rgba(0, 96, 255, 0.18);
   pointer-events: none;
@@ -323,6 +323,24 @@ button {
 
 .aa-cell.is-wide-tail {
   color: transparent;
+}
+
+.stamp-preview-cell {
+  position: absolute;
+  z-index: 2;
+  width: var(--cell-width);
+  height: var(--cell-height);
+  font-family: var(--aa-font-family);
+  font-size: var(--cell-font-size);
+  line-height: var(--cell-height);
+  text-align: center;
+  opacity: 0.48;
+  pointer-events: none;
+  white-space: pre;
+}
+
+.stamp-preview-cell.is-wide-head {
+  width: calc(var(--cell-width) * 2);
 }
 
 .side-panel {
@@ -342,7 +360,10 @@ button {
 }
 
 .panel-section--grow {
+  display: flex;
+  flex-direction: column;
   flex: 1;
+  min-height: 0;
 }
 
 .panel-section h2 {
@@ -545,6 +566,49 @@ button {
   white-space: nowrap;
 }
 
+.stamp-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.stamp-list-item {
+  display: block;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid transparent;
+  background: #3a3a3a;
+  color: #eeeeee;
+  text-align: left;
+}
+
+.stamp-list-item.is-selected {
+  border-color: #eeeeee;
+  background: #5a5a5a;
+}
+
+.stamp-list-name {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.stamp-list-preview {
+  min-height: 24px;
+  margin: 0;
+  overflow: hidden;
+  color: #eeeeee;
+  font-family: var(--aa-font-family);
+  font-size: 12px;
+  line-height: 14px;
+  white-space: pre;
+}
+
 .layer-item.is-active {
   background: #5a5a5a;
   color: #ffffff;
@@ -627,6 +691,11 @@ button {
   justify-content: center;
   gap: 8px;
   padding: 1px;
+}
+
+.side-panel > .panel-section:last-of-type {
+  flex: 0 0 auto;
+  min-height: 146px;
 }
 
 .layer-actions button:disabled {
