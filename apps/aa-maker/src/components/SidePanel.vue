@@ -233,7 +233,7 @@ function getStampRows(stamp: Stamp) {
           @keydown.esc.prevent="cancelLayerNameEdit"
           @blur="commitLayerName(layer.id)"
         />
-        <span v-else class="layer-name" @click.stop="startLayerNameEdit(layer)">{{ layer.name }}</span>
+        <span v-else class="layer-name" @dblclick.stop="startLayerNameEdit(layer)">{{ layer.name }}</span>
         <button class="layer-icon-button" type="button" :aria-label="`${layer.name} のロックを切り替え`" @click.stop="$emit('toggleLayerLocked', layer.id)">
           <span class="layer-icon" aria-hidden="true" v-html="layer.locked ? lockIcon : lockOpenIcon"></span>
         </button>
