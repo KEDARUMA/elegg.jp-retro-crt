@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import appIcon from "../assets/app-icon.png";
 
 const emit = defineEmits<{
   saveDocument: [];
@@ -57,6 +58,7 @@ function requestInvertCanvasBackground() {
 <template>
   <header class="top-menu">
     <nav class="menu-list" aria-label="Main menu">
+      <img class="app-menu-icon" :src="appIcon" alt="" aria-hidden="true" />
       <div class="menu-item">
         <button type="button" @click="toggleFileMenu">File</button>
         <div v-if="isFileMenuOpen" class="menu-dropdown">

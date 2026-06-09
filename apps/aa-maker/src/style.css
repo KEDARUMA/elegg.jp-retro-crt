@@ -36,7 +36,7 @@ button {
     "menu menu menu"
     "tools editor side"
     "status status status";
-  grid-template-columns: 48px minmax(636px, 1fr) 237px;
+  grid-template-columns: 34px minmax(636px, 1fr) 237px;
   grid-template-rows: 26px minmax(0, 1fr) 26px;
   gap: 0;
   height: 100vh;
@@ -59,7 +59,17 @@ button {
 
 .menu-list {
   display: flex;
+  align-items: center;
   gap: 0;
+}
+
+.app-menu-icon {
+  width: 22px;
+  height: 22px;
+  margin: 0 7px 0 6px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
 
 .menu-item {

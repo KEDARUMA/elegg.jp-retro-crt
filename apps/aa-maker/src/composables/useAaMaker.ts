@@ -137,7 +137,7 @@ export function useAaMaker() {
   const activePaletteId = ref(palettes[0]?.id ?? "");
   const stampSets = createStampSets(stamps as Stamp[]);
   const activeStampSetId = ref(stampSets[0]?.id ?? "");
-  const activeStampId = ref(stampSets[0]?.stamps[0]?.id ?? "");
+  const activeStampId = ref("");
   const documentModel = reactive(createEmptyDocument());
   const toolState = reactive(createInitialToolState());
   const gridZoom = ref(toolState.zoom);
@@ -206,7 +206,13 @@ export function useAaMaker() {
 
   const activePalette = computed(() => palettes.find((palette) => palette.id === activePaletteId.value) ?? palettes[0]);
   const activeStampSet = computed(() => stampSets.find((stampSet) => stampSet.id === activeStampSetId.value) ?? stampSets[0] ?? null);
-  const activeStamp = computed(() => activeStampSet.value?.stamps.find((stamp) => stamp.id === activeStampId.value) ?? activeStampSet.value?.stamps[0] ?? null);
+  const activeStamp = computed(() => {
+    if (!activeStampId.value) {
+      return null;
+    }
+
+    return activeStampSet.value?.stamps.find((stamp) => stamp.id === activeStampId.value) ?? null;
+  });
   const zoomLabel = computed(() => `Zoom: ${Math.round(gridZoom.value * 100)}%`);
   const foregroundDefaultColor = computed(() => getForegroundDefaultColor());
   const colorPickerInitialColor = computed(() => {
@@ -275,15 +281,7 @@ export function useAaMaker() {
 
   const compositedGrid = computed(() => composeDocument(documentModel));
   const stampPreviewCells = computed(() => {
-    if (toolState.activeTool !== "stamp" || !activeStamp.value || !cursorPosition.value) {
-      return [];
-    }
-
-    if (toolState.highlight.kind === "rect") {
-      return [];
-    }
-
-    return getStampPreviewCells(activeStamp.value, cursorPosition.value.x, cursorPosition.value.y);
+    return [];
   });
   const highlightCells = computed(() => {
     const highlight = getRectHighlight();
@@ -484,7 +482,7 @@ export function useAaMaker() {
     }
 
     activeStampSetId.value = stampSet.id;
-    activeStampId.value = stampSet.stamps[0]?.id ?? "";
+    activeStampId.value = "";
   }
 
   function selectStamp(stampId: string) {
@@ -495,6 +493,7 @@ export function useAaMaker() {
     }
 
     activeStampId.value = stamp.id;
+    placeStampAtCenter(stamp);
   }
 
   function selectLayer(layerId: string) {
@@ -643,7 +642,7 @@ export function useAaMaker() {
 
     if (event.key === "Enter" && toolState.highlight.kind === "rect") {
       event.preventDefault();
-      commitHighlight({ transparent: event.ctrlKey });
+      commitHighlight({ transparent: isTransparentCommitEvent(event) });
       return;
     }
 
@@ -721,17 +720,12 @@ export function useAaMaker() {
 
     if (toolState.highlight.kind === "rect") {
       if (!isPointInHighlight(x, y)) {
-        commitHighlight({ transparent: event.ctrlKey });
+        commitHighlight({ transparent: isTransparentCommitEvent(event) });
       }
       return;
     }
 
     if (toolState.activeTool === "eyedropper") {
-      applyTool(x, y);
-      return;
-    }
-
-    if (toolState.activeTool === "stamp") {
       applyTool(x, y);
       return;
     }
@@ -815,10 +809,6 @@ export function useAaMaker() {
 
     if (toolState.activeTool === "eyedropper") {
       pickChar(x, y);
-    }
-
-    if (toolState.activeTool === "stamp") {
-      placeStamp(x, y);
     }
 
     cursorPosition.value = { x, y };
@@ -929,6 +919,10 @@ export function useAaMaker() {
     clearHighlightOnly();
   }
 
+  function isTransparentCommitEvent(event: Pick<KeyboardEvent | PointerEvent, "ctrlKey" | "metaKey">) {
+    return event.ctrlKey || event.metaKey;
+  }
+
   function cancelHighlight() {
     const highlight = getRectHighlight();
 
@@ -990,7 +984,7 @@ export function useAaMaker() {
     }
 
     event.preventDefault();
-    commitHighlight({ transparent: event.ctrlKey });
+    commitHighlight({ transparent: isTransparentCommitEvent(event) });
   }
 
   function handleHighlightContext(event: MouseEvent) {
@@ -1480,39 +1474,6 @@ export function useAaMaker() {
     return style;
   }
 
-  function getStampPreviewCells(stamp: Stamp, originX: number, originY: number): StampPreviewCell[] {
-    const previewCells: StampPreviewCell[] = [];
-
-    stamp.cells.forEach((row, rowIndex) => {
-      const y = originY + rowIndex;
-
-      if (y < 0 || y >= GRID_ROWS) {
-        return;
-      }
-
-      row.forEach((cell, columnIndex) => {
-        const x = originX + columnIndex;
-
-        if (!cell || x < 0 || x >= GRID_COLUMNS) {
-          return;
-        }
-
-        previewCells.push({
-          x,
-          y,
-          text: cell.char === " " ? "\u00a0" : cell.char,
-          style: {
-            color: `#${resolveStampFGC(cell.fgc)}`,
-            backgroundColor: `#${cell.bgc ?? documentModel.canvasBGC}`,
-          },
-          className: cell.width === 2 ? ["is-wide-head"] : [],
-        });
-      });
-    });
-
-    return previewCells;
-  }
-
   function getHighlightPreviewCells(highlight: HighlightRect): StampPreviewCell[] {
     const previewCells: StampPreviewCell[] = [];
 
@@ -1538,12 +1499,9 @@ export function useAaMaker() {
     return previewCells;
   }
 
-  function placeStamp(originX: number, originY: number) {
-    const stamp = activeStamp.value;
-
-    if (!stamp) {
-      return;
-    }
+  function placeStampAtCenter(stamp: Stamp) {
+    const originX = Math.floor((GRID_COLUMNS - stamp.width) / 2);
+    const originY = Math.floor((GRID_ROWS - stamp.height) / 2);
 
     const contents = createEmptyCellGrid(stamp.width, stamp.height);
 
