@@ -13,10 +13,15 @@ defineProps<{
   tools: ToolItem[];
   activeTool: Tool;
   selectedChar: string | null;
+  selectedForegroundColor: string;
+  selectedBackgroundColor: string | null;
+  canvasBackgroundColor: string;
 }>();
 
 defineEmits<{
   selectTool: [tool: Tool];
+  openSelectedForegroundColorPicker: [];
+  openSelectedBackgroundColorPicker: [];
 }>();
 </script>
 
@@ -37,6 +42,15 @@ defineEmits<{
         <span class="tool-icon" aria-hidden="true" v-html="tool.icon"></span>
       </button>
     </div>
-    <SelectedChar :selected-char="selectedChar" />
+    <div class="selected-char-wrap">
+      <SelectedChar
+        :selected-char="selectedChar"
+        :selected-foreground-color="selectedForegroundColor"
+        :selected-background-color="selectedBackgroundColor"
+        :canvas-background-color="canvasBackgroundColor"
+        @open-foreground-color="$emit('openSelectedForegroundColorPicker')"
+        @open-background-color="$emit('openSelectedBackgroundColorPicker')"
+      />
+    </div>
   </aside>
 </template>

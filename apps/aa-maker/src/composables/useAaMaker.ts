@@ -12,7 +12,7 @@ import stamps from "../data/stamps.json";
 import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
-import type { Cell, Document as AaDocument, Layer, Stamp, Tool } from "../model/types";
+import type { Cell, Color, ColorScheme, Document as AaDocument, Layer, Stamp, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -75,6 +75,13 @@ const stampSetNames: Record<string, string> = {
   monar: "Monar",
   "speech-bubble": "Speech Bubble",
 };
+const colorSchemes: ColorScheme[] = [
+  {
+    id: "basic",
+    name: "Basic",
+    colors: ["000000", "555555", "aaaaaa", "ffffff", "ff5555", "ffaa00", "ffff55", "55ff55", "55ffff", "5555ff", "aa55ff", "ff55ff"],
+  },
+];
 
 type StoredHistoryPalette = {
   history?: unknown;
@@ -120,6 +127,7 @@ export function useAaMaker() {
   const lastDrawnCellKey = ref<string | null>(null);
   const lastDrawnPosition = ref<{ x: number; y: number } | null>(null);
   const cursorPosition = ref<{ x: number; y: number } | null>(null);
+  const selectedColorPickerMode = ref<"fgc" | "bgc" | null>(null);
 
   const tools = [
     {
@@ -275,6 +283,32 @@ export function useAaMaker() {
 
   function selectTool(tool: Tool) {
     toolState.activeTool = tool;
+  }
+
+  function openSelectedFGCColorPicker() {
+    selectedColorPickerMode.value = selectedColorPickerMode.value === "fgc" ? null : "fgc";
+  }
+
+  function openSelectedBGCColorPicker() {
+    selectedColorPickerMode.value = selectedColorPickerMode.value === "bgc" ? null : "bgc";
+  }
+
+  function closeSelectedColorPicker() {
+    selectedColorPickerMode.value = null;
+  }
+
+  function selectSelectedColor(mode: "fgc" | "bgc", color: Color | null) {
+    if (mode === "fgc") {
+      if (color !== null) {
+        toolState.selectedFGC = color;
+      }
+    }
+
+    if (mode === "bgc") {
+      toolState.selectedBGC = color;
+    }
+
+    selectedColorPickerMode.value = null;
   }
 
   function saveDocument(name: string) {
@@ -676,12 +710,28 @@ export function useAaMaker() {
   function getCellClass(x: number, y: number) {
     const activeLayer = getEditableActiveLayer();
     const cell = activeLayer ? getCell(activeLayer, x, y) : null;
-    return cell?.kind === "wide-tail" ? ["is-wide-tail"] : [];
+
+    if (cell?.kind === "char" && cell.width === 2) {
+      return ["is-wide-head"];
+    }
+
+    if (cell?.kind === "wide-tail") {
+      return ["is-wide-tail"];
+    }
+
+    return [];
   }
 
   function getCellStyle(x: number, y: number) {
     const compositedCell = compositedGrid.value[y][x];
     const style = { backgroundColor: `#${compositedCell.bgc}` } as Record<string, string>;
+    const activeLayer = getEditableActiveLayer();
+    const activeCell = activeLayer ? getCell(activeLayer, x, y) : null;
+
+    if (activeLayer && activeCell?.kind === "wide-tail") {
+      const head = getHeadCell(activeLayer, x, y);
+      style.backgroundColor = `#${head?.bgc ?? documentModel.canvasBGC}`;
+    }
 
     if (compositedCell.fgc) {
       style.color = `#${compositedCell.fgc}`;
@@ -806,6 +856,7 @@ export function useAaMaker() {
     activeStampId,
     activeStampSet,
     activeStampSetId,
+    colorSchemes,
     documentModel,
     gridCells,
     gridLineStyle,
@@ -816,6 +867,7 @@ export function useAaMaker() {
     selectionStyle,
     stampPreviewCells,
     stampSets,
+    selectedColorPickerMode,
     toolState,
     tools,
     zoomLabel,
@@ -837,10 +889,14 @@ export function useAaMaker() {
     saveDocument,
     selectPalette,
     selectPaletteChar,
+    closeSelectedColorPicker,
     selectStamp,
     selectStampSet,
+    selectSelectedColor,
     selectLayer,
     selectTool,
+    openSelectedBGCColorPicker,
+    openSelectedFGCColorPicker,
     loadDocument,
     stopDrawing,
     toggleLayerLocked,

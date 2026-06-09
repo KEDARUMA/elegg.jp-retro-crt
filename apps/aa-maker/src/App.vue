@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import ColorPickerModal from "./components/ColorPickerModal.vue";
 import EditorGrid from "./components/EditorGrid.vue";
 import ExportDocumentModal from "./components/ExportDocumentModal.vue";
 import SaveDocumentModal from "./components/SaveDocumentModal.vue";
@@ -37,7 +38,12 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :tools="aaMaker.tools"
       :active-tool="aaMaker.toolState.activeTool"
       :selected-char="aaMaker.toolState.selectedChar"
+      :selected-foreground-color="aaMaker.toolState.selectedFGC"
+      :selected-background-color="aaMaker.toolState.selectedBGC"
+      :canvas-background-color="aaMaker.documentModel.canvasBGC"
       @select-tool="aaMaker.selectTool"
+      @open-selected-foreground-color-picker="aaMaker.openSelectedFGCColorPicker"
+      @open-selected-background-color-picker="aaMaker.openSelectedBGCColorPicker"
     />
     <EditorGrid
       :cells="aaMaker.gridCells"
@@ -98,6 +104,15 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       v-if="isExportDocumentModalOpen"
       @export="exportDocument"
       @cancel="isExportDocumentModalOpen = false"
+    />
+    <ColorPickerModal
+      v-if="aaMaker.selectedColorPickerMode.value"
+      :mode="aaMaker.selectedColorPickerMode.value"
+      :initial-color="aaMaker.selectedColorPickerMode.value === 'fgc' ? aaMaker.toolState.selectedFGC : aaMaker.toolState.selectedBGC ?? aaMaker.documentModel.canvasBGC"
+      :swatches="aaMaker.colorSchemes[0]?.colors ?? []"
+      :allow-none="aaMaker.selectedColorPickerMode.value === 'bgc'"
+      @apply="aaMaker.selectSelectedColor"
+      @cancel="aaMaker.closeSelectedColorPicker"
     />
   </main>
 </template>

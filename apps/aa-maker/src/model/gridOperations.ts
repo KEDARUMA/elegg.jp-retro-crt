@@ -44,11 +44,11 @@ export function placeChar(
     return false;
   }
 
-  if (isSamePlacedChar(layer, x, y, char)) {
+  if (updateSamePlacedCharStyle(layer, x, y, char, width, fgc, bgc)) {
     return true;
   }
 
-  if (width === 2 && isSamePlacedChar(layer, x + 1, y, char)) {
+  if (width === 2 && isAdjacentWideHead(layer, x, y, char)) {
     return true;
   }
 
@@ -76,19 +76,39 @@ export function placeChar(
   return true;
 }
 
-function isSamePlacedChar(layer: Layer, x: number, y: number, char: string): boolean {
+function updateSamePlacedCharStyle(layer: Layer, x: number, y: number, char: string, width: 1 | 2, fgc: string, bgc: string | null): boolean {
   const cell = getCell(layer, x, y);
 
   if (!cell || cell.kind === "empty") {
     return false;
   }
 
-  if (cell.kind === "char") {
-    return cell.char === char;
+  const head = cell.kind === "char" ? cell : getCell(layer, cell.headX, y);
+
+  if (head?.kind !== "char" || head.char !== char || head.width !== width) {
+    return false;
   }
 
-  const head = getCell(layer, cell.headX, y);
-  return head?.kind === "char" && head.char === char;
+  if (width === 2 && !hasValidWideTail(layer, head, y)) {
+    return false;
+  }
+
+  head.fgc = fgc;
+  head.bgc = bgc;
+  return true;
+}
+
+function hasValidWideTail(layer: Layer, head: CharCell, y: number): boolean {
+  const headX = layer.cells[y].indexOf(head);
+  const tail = getCell(layer, headX + 1, y);
+
+  return headX >= 0 && tail?.kind === "wide-tail" && tail.headX === headX;
+}
+
+function isAdjacentWideHead(layer: Layer, x: number, y: number, char: string): boolean {
+  const rightCell = getCell(layer, x + 1, y);
+
+  return rightCell?.kind === "char" && rightCell.char === char && rightCell.width === 2 && hasValidWideTail(layer, rightCell, y);
 }
 
 export function eraseCell(layer: Layer, x: number, y: number): boolean {
