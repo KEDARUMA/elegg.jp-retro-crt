@@ -47,7 +47,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectPalette: [paletteId: string];
-  selectChar: [char: string, width: 1 | 2];
+  selectChar: [char: string, width: 1 | 2, fillEmptyOnly: boolean];
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
@@ -133,11 +133,11 @@ function getUnicodeChar(code: number) {
   return String.fromCodePoint(code);
 }
 
-function selectUnicodeChar(code: number) {
+function selectUnicodeChar(code: number, event: MouseEvent) {
   const char = getUnicodeChar(code);
 
   if (char) {
-    emit("selectChar", char, getCharWidth(char));
+    emit("selectChar", char, getCharWidth(char), event.shiftKey);
   }
 }
 
@@ -168,7 +168,11 @@ function jumpToUnicodeCode(query: string) {
     return;
   }
 
-  selectUnicodeChar(code);
+  const char = getUnicodeChar(code);
+
+  if (char) {
+    emit("selectChar", char, getCharWidth(char), false);
+  }
 
   const nextScrollTop = Math.floor((code - UNICODE_MIN_CODE) / UNICODE_COLUMNS) * UNICODE_ROW_HEIGHT;
   emit("updateUnicodeScrollOffset", nextScrollTop);
@@ -221,7 +225,7 @@ function parseUnicodeQuery(query: string) {
         type="button"
         :data-code="getPaletteCode(activePalette, char, index)"
         :title="getCodeLabel(getPaletteCode(activePalette, char, index), typeof activePalette.startCode === 'number')"
-        @click="$emit('selectChar', char, getPaletteCharWidth(activePalette, char))"
+        @click="$emit('selectChar', char, getPaletteCharWidth(activePalette, char), $event.shiftKey)"
       >
         <span class="palette-button-text">{{ char }}</span>
       </button>
@@ -237,7 +241,7 @@ function parseUnicodeQuery(query: string) {
           type="button"
           :disabled="char === null"
           :title="char ? getCodeLabel(char.codePointAt(0) ?? 0) : 'Empty'"
-          @click="char && $emit('selectChar', char, getCharWidth(char))"
+          @click="char && $emit('selectChar', char, getCharWidth(char), $event.shiftKey)"
         >
           <span class="palette-button-text">{{ char ?? "" }}</span>
         </button>
@@ -251,7 +255,7 @@ function parseUnicodeQuery(query: string) {
           type="button"
           :disabled="char === null"
           :title="char ? getCodeLabel(char.codePointAt(0) ?? 0) : 'Empty'"
-          @click="char && $emit('selectChar', char, getCharWidth(char))"
+          @click="char && $emit('selectChar', char, getCharWidth(char), $event.shiftKey)"
           @contextmenu.prevent="$emit('assignHistoryChar', index)"
         >
           <span class="palette-button-text">{{ char ?? "" }}</span>
@@ -291,7 +295,7 @@ function parseUnicodeQuery(query: string) {
                 type="button"
                 :disabled="getUnicodeChar(code) === ''"
                 :title="getCodeLabel(code)"
-                @click="selectUnicodeChar(code)"
+                @click="selectUnicodeChar(code, $event)"
               >
                 <span class="palette-button-text">{{ getUnicodeChar(code) }}</span>
               </button>

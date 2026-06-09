@@ -5,13 +5,21 @@ const emit = defineEmits<{
   saveDocument: [];
   loadDocument: [file: File];
   exportDocument: [];
+  invertCanvasBackground: [];
 }>();
 
 const isFileMenuOpen = ref(false);
+const isImageMenuOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 function toggleFileMenu() {
   isFileMenuOpen.value = !isFileMenuOpen.value;
+  isImageMenuOpen.value = false;
+}
+
+function toggleImageMenu() {
+  isImageMenuOpen.value = !isImageMenuOpen.value;
+  isFileMenuOpen.value = false;
 }
 
 function requestLoad() {
@@ -39,6 +47,11 @@ function requestExport() {
   emit("exportDocument");
   isFileMenuOpen.value = false;
 }
+
+function requestInvertCanvasBackground() {
+  emit("invertCanvasBackground");
+  isImageMenuOpen.value = false;
+}
 </script>
 
 <template>
@@ -53,7 +66,12 @@ function requestExport() {
         </div>
         <input ref="fileInputRef" class="hidden-file-input" type="file" accept="application/json,.json" @change="handleLoadFile" />
       </div>
-      <button type="button">Image</button>
+      <div class="menu-item">
+        <button type="button" @click="toggleImageMenu">Image</button>
+        <div v-if="isImageMenuOpen" class="menu-dropdown">
+          <button type="button" @click="requestInvertCanvasBackground">Invert BG</button>
+        </div>
+      </div>
     </nav>
   </header>
 </template>

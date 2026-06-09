@@ -33,7 +33,12 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
 
 <template>
   <main class="aa-maker-shell" aria-label="AA Maker">
-    <TopMenu @save-document="openSaveDocumentModal" @load-document="aaMaker.loadDocument" @export-document="isExportDocumentModalOpen = true" />
+    <TopMenu
+      @save-document="openSaveDocumentModal"
+      @load-document="aaMaker.loadDocument"
+      @export-document="isExportDocumentModalOpen = true"
+      @invert-canvas-background="aaMaker.invertCanvasBackground"
+    />
     <Toolbox
       :tools="aaMaker.tools"
       :active-tool="aaMaker.toolState.activeTool"
@@ -94,6 +99,19 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       <span>{{ aaMaker.zoomLabel.value }}</span>
       <span>Canvas Color: {{ aaMaker.documentModel.canvasBGC }}</span>
     </footer>
+    <div
+      v-if="aaMaker.selectionContextMenuStyle?.value"
+      class="selection-context-menu"
+      :style="aaMaker.selectionContextMenuStyle?.value"
+      role="menu"
+      aria-label="Selection actions"
+      @pointerdown.stop
+      @contextmenu.prevent.stop
+    >
+      <button type="button" role="menuitem" @click="aaMaker.clearSelectionColors">Clear Colors</button>
+      <button type="button" role="menuitem" @click="aaMaker.openSelectionFGCColorPicker">Text Color...</button>
+      <button type="button" role="menuitem" @click="aaMaker.openSelectionBGCColorPicker">Background Color...</button>
+    </div>
     <SaveDocumentModal
       v-if="isSaveDocumentModalOpen"
       :initial-name="aaMaker.documentModel.name"
@@ -108,9 +126,9 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
     <ColorPickerModal
       v-if="aaMaker.selectedColorPickerMode.value"
       :mode="aaMaker.selectedColorPickerMode.value"
-      :initial-color="aaMaker.selectedColorPickerMode.value === 'fgc' ? aaMaker.toolState.selectedFGC : aaMaker.toolState.selectedBGC ?? aaMaker.documentModel.canvasBGC"
+      :initial-color="aaMaker.colorPickerInitialColor?.value ?? (aaMaker.selectedColorPickerMode.value === 'fgc' ? aaMaker.toolState.selectedFGC : aaMaker.toolState.selectedBGC ?? aaMaker.documentModel.canvasBGC)"
       :swatches="aaMaker.colorSchemes[0]?.colors ?? []"
-      :allow-none="aaMaker.selectedColorPickerMode.value === 'bgc'"
+      :allow-none="aaMaker.colorPickerAllowsNone?.value ?? aaMaker.selectedColorPickerMode.value === 'bgc'"
       @apply="aaMaker.selectSelectedColor"
       @cancel="aaMaker.closeSelectedColorPicker"
     />

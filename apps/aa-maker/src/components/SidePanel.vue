@@ -80,7 +80,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectPalette: [paletteId: string];
-  selectChar: [char: string, width: 1 | 2];
+  selectChar: [char: string, width: 1 | 2, fillEmptyOnly: boolean];
   selectStampSet: [stampSetId: string];
   selectStamp: [stampId: string];
   keyboardInput: [value: string];
@@ -174,7 +174,7 @@ function getStampRows(stamp: Stamp) {
       :selected-char="selectedChar"
       :selected-code="selectedCode"
       @select-palette="(paletteId) => $emit('selectPalette', paletteId)"
-      @select-char="(char, width) => $emit('selectChar', char, width)"
+      @select-char="(char, width, fillEmptyOnly) => $emit('selectChar', char, width, fillEmptyOnly)"
       @keyboard-input="(value) => $emit('keyboardInput', value)"
       @update-unicode-query="(query) => $emit('updateUnicodeQuery', query)"
       @update-unicode-scroll-offset="(scrollOffset) => $emit('updateUnicodeScrollOffset', scrollOffset)"

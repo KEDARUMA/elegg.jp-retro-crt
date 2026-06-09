@@ -10,9 +10,9 @@ import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
 import stamps from "../data/stamps.json";
 import { composeDocument } from "../model/composeLayers";
-import { DEFAULT_DOCUMENT_NAME, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
+import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
-import type { Cell, Color, ColorScheme, Document as AaDocument, Layer, Stamp, Tool } from "../model/types";
+import type { Cell, Color, ColorScheme, Document as AaDocument, Layer, Selection, Stamp, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -65,10 +65,26 @@ type StampPreviewCell = {
 
 type ExportFormat = "plain" | "ansi" | "mds";
 type ExportDestination = "download" | "clipboard";
+type ColorPickerTarget = "selected" | "selection";
+type PasteTextOptions = {
+  transparentSpaces?: boolean;
+};
+type HistorySnapshot = {
+  document: AaDocument;
+  selection: Selection;
+};
+type RectSelection = {
+  kind: "rect";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
+const UNDO_HISTORY_LIMIT = 100;
 const HISTORY_STORAGE_KEY = "aa-maker.char-palette.history.v1";
 const stampSetNames: Record<string, string> = {
   gikoneko: "Giko Neko",
@@ -128,6 +144,10 @@ export function useAaMaker() {
   const lastDrawnPosition = ref<{ x: number; y: number } | null>(null);
   const cursorPosition = ref<{ x: number; y: number } | null>(null);
   const selectedColorPickerMode = ref<"fgc" | "bgc" | null>(null);
+  const colorPickerTarget = ref<ColorPickerTarget>("selected");
+  const selectionContextMenu = ref<{ x: number; y: number } | null>(null);
+  const undoStack = ref<HistorySnapshot[]>([]);
+  const redoStack = ref<HistorySnapshot[]>([]);
 
   const tools = [
     {
@@ -189,6 +209,24 @@ export function useAaMaker() {
   const activeStampSet = computed(() => stampSets.find((stampSet) => stampSet.id === activeStampSetId.value) ?? stampSets[0] ?? null);
   const activeStamp = computed(() => activeStampSet.value?.stamps.find((stamp) => stamp.id === activeStampId.value) ?? activeStampSet.value?.stamps[0] ?? null);
   const zoomLabel = computed(() => `Zoom: ${Math.round(gridZoom.value * 100)}%`);
+  const colorPickerInitialColor = computed(() => {
+    if (colorPickerTarget.value === "selection") {
+      return selectedColorPickerMode.value === "fgc" ? getReadableCanvasColor() : documentModel.canvasBGC;
+    }
+
+    return selectedColorPickerMode.value === "fgc" ? toolState.selectedFGC : (toolState.selectedBGC ?? documentModel.canvasBGC);
+  });
+  const colorPickerAllowsNone = computed(() => colorPickerTarget.value === "selected" && selectedColorPickerMode.value === "bgc");
+  const selectionContextMenuStyle = computed(() => {
+    if (!selectionContextMenu.value) {
+      return null;
+    }
+
+    return {
+      left: `${selectionContextMenu.value.x}px`,
+      top: `${selectionContextMenu.value.y}px`,
+    };
+  });
   const selectionStyle = computed(() => {
     if (toolState.selection.kind !== "rect") {
       return null;
@@ -274,30 +312,45 @@ export function useAaMaker() {
   onMounted(() => {
     document.addEventListener("pointerup", stopDrawing);
     document.addEventListener("pointerleave", stopDrawing);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    document.addEventListener("pointerdown", closeSelectionContextMenu);
   });
 
   onUnmounted(() => {
     document.removeEventListener("pointerup", stopDrawing);
     document.removeEventListener("pointerleave", stopDrawing);
+    document.removeEventListener("keydown", handleDocumentKeyDown);
+    document.removeEventListener("pointerdown", closeSelectionContextMenu);
   });
 
   function selectTool(tool: Tool) {
     toolState.activeTool = tool;
+
+    if (tool !== "select") {
+      clearSelection();
+    }
   }
 
   function openSelectedFGCColorPicker() {
-    selectedColorPickerMode.value = selectedColorPickerMode.value === "fgc" ? null : "fgc";
+    openColorPicker("fgc", "selected");
   }
 
   function openSelectedBGCColorPicker() {
-    selectedColorPickerMode.value = selectedColorPickerMode.value === "bgc" ? null : "bgc";
+    openColorPicker("bgc", "selected");
   }
 
   function closeSelectedColorPicker() {
     selectedColorPickerMode.value = null;
+    colorPickerTarget.value = "selected";
   }
 
   function selectSelectedColor(mode: "fgc" | "bgc", color: Color | null) {
+    if (colorPickerTarget.value === "selection") {
+      applySelectionColor(mode, color);
+      closeSelectedColorPicker();
+      return;
+    }
+
     if (mode === "fgc") {
       if (color !== null) {
         toolState.selectedFGC = color;
@@ -309,6 +362,14 @@ export function useAaMaker() {
     }
 
     selectedColorPickerMode.value = null;
+  }
+
+  function openColorPicker(mode: "fgc" | "bgc", target: ColorPickerTarget) {
+    const isSamePicker = selectedColorPickerMode.value === mode && colorPickerTarget.value === target;
+
+    colorPickerTarget.value = target;
+    selectedColorPickerMode.value = isSamePicker ? null : mode;
+    closeSelectionContextMenu();
   }
 
   function saveDocument(name: string) {
@@ -331,6 +392,8 @@ export function useAaMaker() {
       Object.assign(documentModel, loadedDocument);
       toolState.selection = { kind: "none" };
       cursorPosition.value = null;
+      undoStack.value = [];
+      redoStack.value = [];
     } catch {
       window.alert("Load failed: invalid AA Maker JSON.");
     }
@@ -352,8 +415,20 @@ export function useAaMaker() {
     }
   }
 
-  function selectPaletteChar(char: string, width: 1 | 2) {
+  function invertCanvasBackground() {
+    recordDocumentHistory();
+    documentModel.canvasBGC = documentModel.canvasBGC === "ffffff" ? "000000" : "ffffff";
+  }
+
+  function selectPaletteChar(char: string, width: 1 | 2, fillEmptyOnly = false) {
     setSelectedChar(char, width, true);
+
+    if (fillEmptyOnly) {
+      fillEmptySelectionWithChar(char, width);
+      return;
+    }
+
+    fillSelectionWithChar(char, width);
   }
 
   function selectPalette(paletteId: string) {
@@ -392,6 +467,7 @@ export function useAaMaker() {
   }
 
   function addLayer() {
+    recordDocumentHistory();
     const layerNumber = documentModel.nextLayerNumber;
     const layer = createLayer(`layer-${layerNumber}`, `Layer ${layerNumber}`);
 
@@ -411,6 +487,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordDocumentHistory();
     documentModel.layers.splice(layerIndex, 1);
     ensureActiveLayerSelectable();
   }
@@ -422,6 +499,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordDocumentHistory();
     layer.visible = !layer.visible;
     ensureActiveLayerSelectable();
   }
@@ -433,6 +511,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordDocumentHistory();
     layer.locked = !layer.locked;
     ensureActiveLayerSelectable();
   }
@@ -445,6 +524,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordDocumentHistory();
     layer.name = trimmedName;
   }
 
@@ -468,6 +548,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordDocumentHistory();
     displayLayers.splice(placement === "after" ? newTargetIndex + 1 : newTargetIndex, 0, draggedLayer);
     documentModel.layers.splice(0, documentModel.layers.length, ...displayLayers.reverse());
   }
@@ -481,7 +562,72 @@ export function useAaMaker() {
     }
 
     if (firstChar) {
-      setSelectedChar(firstChar, getCharWidth(firstChar), true);
+      const width = getCharWidth(firstChar);
+
+      setSelectedChar(firstChar, width, true);
+      fillSelectionWithChar(firstChar, width);
+    }
+  }
+
+  function handleDocumentKeyDown(event: KeyboardEvent) {
+    if (event.defaultPrevented || isTextEditingTarget(event.target)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+
+    if (event.ctrlKey && key === "a") {
+      event.preventDefault();
+      selectAllGrid();
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && key === "z") {
+      event.preventDefault();
+
+      if (event.shiftKey) {
+        redoDocumentChange();
+      } else {
+        undoDocumentChange();
+      }
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && key === "y") {
+      event.preventDefault();
+      redoDocumentChange();
+      return;
+    }
+
+    if (toolState.selection.kind !== "rect") {
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearSelection();
+      return;
+    }
+
+    if (event.key === "Delete") {
+      event.preventDefault();
+      deleteSelection();
+      return;
+    }
+
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
+
+    if (key === "c") {
+      event.preventDefault();
+      void copySelectionToClipboard();
+      return;
+    }
+
+    if (key === "v") {
+      event.preventDefault();
+      void pasteSelectionFromClipboard({ transparentSpaces: isTransparentPasteShortcut(event) });
     }
   }
 
@@ -533,6 +679,9 @@ export function useAaMaker() {
     }
 
     if (toolState.activeTool === "stamp") {
+      if (getEditableActiveLayer()) {
+        recordDocumentHistory();
+      }
       applyTool(x, y);
       return;
     }
@@ -546,11 +695,24 @@ export function useAaMaker() {
 
     isDrawing.value = true;
     lastDrawnCellKey.value = null;
+    lastDrawnPosition.value = null;
+
+    if ((toolState.activeTool === "pen" || toolState.activeTool === "eraser") && getEditableActiveLayer()) {
+      recordDocumentHistory();
+    }
+
     applyDragTool(x, y);
   }
 
   function handleCellContext(x: number, y: number, event: MouseEvent) {
     event.preventDefault();
+
+    if (toolState.selection.kind === "rect") {
+      cursorPosition.value = { x, y };
+      openSelectionContextMenu(event.clientX, event.clientY);
+      return;
+    }
+
     pickChar(x, y);
   }
 
@@ -641,6 +803,8 @@ export function useAaMaker() {
   }
 
   function updateSelection(x: number, y: number) {
+    closeSelectionContextMenu();
+
     const anchor = selectionAnchor.value ?? { x, y };
     const left = Math.min(anchor.x, x);
     const top = Math.min(anchor.y, y);
@@ -656,6 +820,335 @@ export function useAaMaker() {
     };
 
     cursorPosition.value = { x, y };
+  }
+
+  function deleteSelection() {
+    const selection = getRectSelection();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!selection || !activeLayer) {
+      return;
+    }
+
+    recordDocumentHistory();
+    eraseSelectionCells(activeLayer, selection);
+  }
+
+  function clearSelection() {
+    toolState.selection = { kind: "none" };
+    closeSelectionContextMenu();
+  }
+
+  function selectAllGrid() {
+    toolState.activeTool = "select";
+    toolState.selection = {
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: GRID_COLUMNS,
+      height: GRID_ROWS,
+    };
+    closeSelectionContextMenu();
+  }
+
+  function recordDocumentHistory() {
+    undoStack.value.push(createHistorySnapshot());
+
+    if (undoStack.value.length > UNDO_HISTORY_LIMIT) {
+      undoStack.value.shift();
+    }
+
+    redoStack.value = [];
+  }
+
+  function undoDocumentChange() {
+    const snapshot = undoStack.value.pop();
+
+    if (!snapshot) {
+      return;
+    }
+
+    redoStack.value.push(createHistorySnapshot());
+    restoreHistorySnapshot(snapshot);
+  }
+
+  function redoDocumentChange() {
+    const snapshot = redoStack.value.pop();
+
+    if (!snapshot) {
+      return;
+    }
+
+    undoStack.value.push(createHistorySnapshot());
+    restoreHistorySnapshot(snapshot);
+  }
+
+  function createHistorySnapshot(): HistorySnapshot {
+    return {
+      document: cloneDocument(documentModel),
+      selection: cloneSelection(toolState.selection),
+    };
+  }
+
+  function restoreHistorySnapshot(snapshot: HistorySnapshot) {
+    Object.assign(documentModel, cloneDocument(snapshot.document));
+    toolState.selection = cloneSelection(snapshot.selection);
+    closeSelectionContextMenu();
+  }
+
+  async function copySelectionToClipboard() {
+    const selection = getRectSelection();
+
+    if (!selection) {
+      return;
+    }
+
+    if (!navigator.clipboard) {
+      window.alert("Copy failed: clipboard API is unavailable.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(getSelectionText(selection));
+    } catch {
+      window.alert("Copy failed: could not write to clipboard.");
+    }
+  }
+
+  async function pasteSelectionFromClipboard(options: PasteTextOptions = {}) {
+    const selection = getRectSelection();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!selection || !activeLayer) {
+      return;
+    }
+
+    if (!navigator.clipboard) {
+      window.alert("Paste failed: clipboard API is unavailable.");
+      return;
+    }
+
+    try {
+      const text = await navigator.clipboard.readText();
+      recordDocumentHistory();
+      pasteTextAtSelection(activeLayer, selection, text, options);
+    } catch {
+      window.alert("Paste failed: could not read from clipboard.");
+    }
+  }
+
+  function fillSelectionWithChar(char: string, width: 1 | 2) {
+    const selection = getRectSelection();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!selection || !activeLayer) {
+      return;
+    }
+
+    recordDocumentHistory();
+    eraseSelectionCells(activeLayer, selection);
+
+    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
+      for (let x = selection.x; x < selection.x + selection.width; x += width) {
+        if (x + width > selection.x + selection.width) {
+          break;
+        }
+
+        placeChar(activeLayer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
+      }
+    }
+  }
+
+  function fillEmptySelectionWithChar(char: string, width: 1 | 2) {
+    const selection = getRectSelection();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!selection || !activeLayer) {
+      return;
+    }
+
+    recordDocumentHistory();
+    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
+      let x = selection.x;
+
+      while (x < selection.x + selection.width) {
+        if (canPlaceCharOnEmptyCells(activeLayer, selection, x, y, width)) {
+          placeChar(activeLayer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
+          x += width;
+          continue;
+        }
+
+        x += 1;
+      }
+    }
+  }
+
+  function clearSelectionColors() {
+    const selection = getRectSelection();
+    const activeLayer = getEditableActiveLayer();
+
+    closeSelectionContextMenu();
+
+    if (!selection || !activeLayer) {
+      return;
+    }
+
+    recordDocumentHistory();
+    forEachCharCellInSelection(activeLayer, selection, (cell) => {
+      cell.fgc = invertHexColor(documentModel.canvasBGC);
+      cell.bgc = null;
+    });
+  }
+
+  function openSelectionFGCColorPicker() {
+    openColorPicker("fgc", "selection");
+  }
+
+  function openSelectionBGCColorPicker() {
+    openColorPicker("bgc", "selection");
+  }
+
+  function applySelectionColor(mode: "fgc" | "bgc", color: Color | null) {
+    const selection = getRectSelection();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!selection || !activeLayer) {
+      return;
+    }
+
+    recordDocumentHistory();
+    forEachCharCellInSelection(activeLayer, selection, (cell) => {
+      if (mode === "fgc") {
+        if (color !== null) {
+          cell.fgc = color;
+        }
+        return;
+      }
+
+      cell.bgc = color;
+    });
+  }
+
+  function openSelectionContextMenu(x: number, y: number) {
+    selectionContextMenu.value = getContextMenuPosition(x, y);
+  }
+
+  function closeSelectionContextMenu() {
+    selectionContextMenu.value = null;
+  }
+
+  function eraseSelectionCells(layer: Layer, selection: RectSelection) {
+    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
+      for (let x = selection.x; x < selection.x + selection.width; x += 1) {
+        eraseCell(layer, x, y);
+      }
+    }
+  }
+
+  function getSelectionText(selection: RectSelection) {
+    const lines: string[] = [];
+
+    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
+      const chars: string[] = [];
+      let x = selection.x;
+
+      while (x < selection.x + selection.width) {
+        const cell = compositedGrid.value[y][x];
+        const char = cell.char === NBSP ? " " : cell.char;
+        const width = char === " " ? 1 : getCharWidth(char);
+
+        chars.push(char);
+        x += width;
+      }
+
+      lines.push(chars.join(""));
+    }
+
+    return lines.join("\n");
+  }
+
+  function pasteTextAtSelection(layer: Layer, selection: RectSelection, text: string, options: PasteTextOptions = {}) {
+    const lines = getClipboardLines(text);
+
+    if (lines.length === 0) {
+      return;
+    }
+
+    let pastedWidth = 0;
+    let pastedHeight = 0;
+    let hasPlacedCell = false;
+
+    for (let rowIndex = 0; rowIndex < lines.length; rowIndex += 1) {
+      const y = selection.y + rowIndex;
+
+      if (y >= GRID_ROWS) {
+        break;
+      }
+
+      let x = selection.x;
+
+      for (const grapheme of getGraphemes(lines[rowIndex].replace(/\t/g, "    "))) {
+        const isBlank = isClipboardBlankGrapheme(grapheme);
+        const char = grapheme === " " ? NBSP : grapheme;
+        const width = isBlank ? getCharWidth(grapheme) : getCharWidth(char);
+
+        if (x + width > GRID_COLUMNS) {
+          break;
+        }
+
+        if (!options.transparentSpaces || !isBlank) {
+          placeChar(layer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
+          hasPlacedCell = true;
+        }
+
+        x += width;
+      }
+
+      pastedWidth = Math.max(pastedWidth, x - selection.x);
+      pastedHeight = rowIndex + 1;
+    }
+
+    if (pastedWidth <= 0 || pastedHeight <= 0 || (options.transparentSpaces && !hasPlacedCell)) {
+      return;
+    }
+
+    toolState.selection = {
+      kind: "rect",
+      x: selection.x,
+      y: selection.y,
+      width: pastedWidth,
+      height: pastedHeight,
+    };
+  }
+
+  function getRectSelection(): RectSelection | null {
+    return toolState.selection.kind === "rect" ? toolState.selection : null;
+  }
+
+  function forEachCharCellInSelection(layer: Layer, selection: RectSelection, callback: (cell: Extract<Cell, { kind: "char" }>) => void) {
+    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
+      for (let x = selection.x; x < selection.x + selection.width; x += 1) {
+        const cell = getCell(layer, x, y);
+
+        if (cell?.kind === "char") {
+          callback(cell);
+        }
+      }
+    }
+  }
+
+  function canPlaceCharOnEmptyCells(layer: Layer, selection: RectSelection, x: number, y: number, width: 1 | 2) {
+    if (x + width > selection.x + selection.width) {
+      return false;
+    }
+
+    for (let offset = 0; offset < width; offset += 1) {
+      if (getCell(layer, x + offset, y)?.kind !== "empty") {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   function pickChar(x: number, y: number) {
@@ -818,6 +1311,10 @@ export function useAaMaker() {
     return fgc ?? (isDarkColor(documentModel.canvasBGC) ? "ffffff" : "000000");
   }
 
+  function getReadableCanvasColor() {
+    return isDarkColor(documentModel.canvasBGC) ? "ffffff" : "000000";
+  }
+
   function getEditableActiveLayer(): Layer | null {
     const layer = documentModel.layers.find((candidate) => candidate.id === documentModel.activeLayerId);
 
@@ -856,6 +1353,8 @@ export function useAaMaker() {
     activeStampId,
     activeStampSet,
     activeStampSetId,
+    colorPickerAllowsNone,
+    colorPickerInitialColor,
     colorSchemes,
     documentModel,
     gridCells,
@@ -865,6 +1364,8 @@ export function useAaMaker() {
     palettes,
     selectedPaletteCode,
     selectionStyle,
+    selectionContextMenu,
+    selectionContextMenuStyle,
     stampPreviewCells,
     stampSets,
     selectedColorPickerMode,
@@ -880,8 +1381,11 @@ export function useAaMaker() {
     handleCellUp,
     handleGridWheel,
     handleKeyboardInput,
+    invertCanvasBackground,
     assignHistoryChar,
     addLayer,
+    clearSelectionColors,
+    closeSelectionContextMenu,
     deleteActiveLayer,
     exportDocument,
     moveLayer,
@@ -890,6 +1394,8 @@ export function useAaMaker() {
     selectPalette,
     selectPaletteChar,
     closeSelectedColorPicker,
+    openSelectionBGCColorPicker,
+    openSelectionFGCColorPicker,
     selectStamp,
     selectStampSet,
     selectSelectedColor,
@@ -908,6 +1414,24 @@ export function useAaMaker() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function cloneDocument(documentValue: AaDocument): AaDocument {
+  return JSON.parse(JSON.stringify(documentValue)) as AaDocument;
+}
+
+function cloneSelection(selection: Selection): Selection {
+  return JSON.parse(JSON.stringify(selection)) as Selection;
+}
+
+function getContextMenuPosition(x: number, y: number) {
+  const menuWidth = 172;
+  const menuHeight = 102;
+
+  return {
+    x: clamp(x, 0, Math.max(0, window.innerWidth - menuWidth)),
+    y: clamp(y, 0, Math.max(0, window.innerHeight - menuHeight)),
+  };
 }
 
 function createExportContent(format: ExportFormat, grid: ReturnType<typeof composeDocument>) {
@@ -1151,6 +1675,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isTextEditingTarget(target: EventTarget | null) {
+  if (document.querySelector('[role="dialog"]')) {
+    return true;
+  }
+
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+}
+
+function isTransparentPasteShortcut(event: KeyboardEvent) {
+  if (!event.ctrlKey) {
+    return false;
+  }
+
+  return isMacPlatform() ? event.metaKey : event.altKey;
+}
+
+function isMacPlatform() {
+  return /mac/i.test(navigator.platform);
+}
+
+function getClipboardLines(text: string) {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const withoutTrailingLineBreak = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
+
+  return withoutTrailingLineBreak === "" ? [] : withoutTrailingLineBreak.split("\n");
+}
+
+function getGraphemes(value: string) {
+  const segmenter = new Intl.Segmenter();
+  return Array.from(segmenter.segment(value), (segment) => segment.segment);
+}
+
+function isClipboardBlankGrapheme(value: string) {
+  return value.trim() === "";
+}
+
 function isColor(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{6}$/.test(value);
 }
@@ -1250,6 +1814,14 @@ function isDarkColor(hexColor: string) {
   const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
 
   return luminance < 128;
+}
+
+function invertHexColor(hexColor: string) {
+  const normalized = hexColor.replace(/^#/, "");
+
+  return [normalized.slice(0, 2), normalized.slice(2, 4), normalized.slice(4, 6)]
+    .map((value) => (255 - Number.parseInt(value, 16)).toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function getLinePositions(fromX: number, fromY: number, toX: number, toY: number) {

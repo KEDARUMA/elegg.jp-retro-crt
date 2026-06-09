@@ -942,6 +942,34 @@ button {
   border-color: #777777;
 }
 
+.selection-context-menu {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  min-width: 172px;
+  padding: 4px;
+  border: 1px solid #151515;
+  background: #303030;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.selection-context-menu button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: #eeeeee;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.selection-context-menu button:hover,
+.selection-context-menu button:focus-visible {
+  background: #555555;
+  outline: 0;
+}
+
 .save-document-modal {
   width: min(420px, calc(100vw - 32px));
 }
