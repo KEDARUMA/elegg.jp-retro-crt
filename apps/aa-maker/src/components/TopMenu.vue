@@ -4,6 +4,7 @@ import { ref } from "vue";
 const emit = defineEmits<{
   saveDocument: [];
   loadDocument: [file: File];
+  exportDocument: [];
 }>();
 
 const isFileMenuOpen = ref(false);
@@ -33,6 +34,11 @@ function requestSave() {
   emit("saveDocument");
   isFileMenuOpen.value = false;
 }
+
+function requestExport() {
+  emit("exportDocument");
+  isFileMenuOpen.value = false;
+}
 </script>
 
 <template>
@@ -43,7 +49,7 @@ function requestSave() {
         <div v-if="isFileMenuOpen" class="menu-dropdown">
           <button type="button" @click="requestLoad">Load</button>
           <button type="button" @click="requestSave">Save</button>
-          <button type="button" disabled>Export</button>
+          <button type="button" @click="requestExport">Export</button>
         </div>
         <input ref="fileInputRef" class="hidden-file-input" type="file" accept="application/json,.json" @change="handleLoadFile" />
       </div>

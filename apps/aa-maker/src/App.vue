@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import EditorGrid from "./components/EditorGrid.vue";
+import ExportDocumentModal from "./components/ExportDocumentModal.vue";
 import SaveDocumentModal from "./components/SaveDocumentModal.vue";
 import SidePanel from "./components/SidePanel.vue";
 import Toolbox from "./components/Toolbox.vue";
@@ -8,7 +9,11 @@ import TopMenu from "./components/TopMenu.vue";
 import { useAaMaker } from "./composables/useAaMaker";
 
 const aaMaker = useAaMaker();
+type ExportFormat = "plain" | "ansi" | "mds";
+type ExportDestination = "download" | "clipboard";
+
 const isSaveDocumentModalOpen = ref(false);
+const isExportDocumentModalOpen = ref(false);
 
 function openSaveDocumentModal() {
   isSaveDocumentModalOpen.value = true;
@@ -18,11 +23,16 @@ function saveDocument(name: string) {
   isSaveDocumentModalOpen.value = false;
   aaMaker.saveDocument(name);
 }
+
+function exportDocument(format: ExportFormat, destination: ExportDestination) {
+  isExportDocumentModalOpen.value = false;
+  void aaMaker.exportDocument(format, destination);
+}
 </script>
 
 <template>
   <main class="aa-maker-shell" aria-label="AA Maker">
-    <TopMenu @save-document="openSaveDocumentModal" @load-document="aaMaker.loadDocument" />
+    <TopMenu @save-document="openSaveDocumentModal" @load-document="aaMaker.loadDocument" @export-document="isExportDocumentModalOpen = true" />
     <Toolbox
       :tools="aaMaker.tools"
       :active-tool="aaMaker.toolState.activeTool"
@@ -83,6 +93,11 @@ function saveDocument(name: string) {
       :initial-name="aaMaker.documentModel.name"
       @save="saveDocument"
       @cancel="isSaveDocumentModalOpen = false"
+    />
+    <ExportDocumentModal
+      v-if="isExportDocumentModalOpen"
+      @export="exportDocument"
+      @cancel="isExportDocumentModalOpen = false"
     />
   </main>
 </template>

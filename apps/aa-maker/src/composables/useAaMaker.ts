@@ -63,6 +63,9 @@ type StampPreviewCell = {
   className: string[];
 };
 
+type ExportFormat = "plain" | "ansi" | "mds";
+type ExportDestination = "download" | "clipboard";
+
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
@@ -296,6 +299,22 @@ export function useAaMaker() {
       cursorPosition.value = null;
     } catch {
       window.alert("Load failed: invalid AA Maker JSON.");
+    }
+  }
+
+  async function exportDocument(format: ExportFormat, destination: ExportDestination) {
+    const content = createExportContent(format, compositedGrid.value);
+    const filename = createExportFilename(documentModel.name, format);
+
+    if (destination === "download") {
+      downloadTextFile(filename, content, "text/plain");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      window.alert("Export failed: could not write to clipboard.");
     }
   }
 
@@ -812,6 +831,7 @@ export function useAaMaker() {
     assignHistoryChar,
     addLayer,
     deleteActiveLayer,
+    exportDocument,
     moveLayer,
     renameLayer,
     saveDocument,
@@ -832,6 +852,132 @@ export function useAaMaker() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function createExportContent(format: ExportFormat, grid: ReturnType<typeof composeDocument>) {
+  if (format === "ansi") {
+    return createAnsiExport(grid);
+  }
+
+  if (format === "mds") {
+    return createMdsExport(grid);
+  }
+
+  return createPlainTextExport(grid);
+}
+
+function createPlainTextExport(grid: ReturnType<typeof composeDocument>) {
+  return grid.map((row) => trimExportRow(row).map((cell) => cell.char).join("")).join("\n");
+}
+
+function createAnsiExport(grid: ReturnType<typeof composeDocument>) {
+  return grid
+    .map((row) => {
+      let currentFGC: string | null = null;
+      let currentBGC: string | null = null;
+
+      const line = trimExportRow(row)
+        .map((cell) => {
+          let prefix = "";
+          const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
+          const nextBGC = cell.sourceLayerId === null ? currentBGC : cell.bgc;
+
+          if (nextFGC !== currentFGC || nextBGC !== currentBGC) {
+            prefix = nextFGC === null && nextBGC === null ? "\x1b[0m" : `\x1b[38;2;${hexToRgbTriplet(nextFGC ?? "ffffff")};48;2;${hexToRgbTriplet(nextBGC ?? "000000")}m`;
+            currentFGC = nextFGC;
+            currentBGC = nextBGC;
+          }
+
+          return `${prefix}${cell.char}`;
+        })
+        .join("");
+
+      return line === "" ? line : `${line}\x1b[0m`;
+    })
+    .join("\n");
+}
+
+function createMdsExport(grid: ReturnType<typeof composeDocument>) {
+  const lines = grid.map((row) => {
+    let currentFGC: string | null = null;
+    let currentBGC: string | null = null;
+    let hasActiveFGC = false;
+    let hasActiveBGC = false;
+
+    const line = trimExportRow(row)
+      .map((cell) => {
+        let prefix = "";
+        const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
+        const nextBGC = cell.sourceLayerId === null ? currentBGC : cell.bgc;
+
+        if (nextFGC !== currentFGC) {
+          if (hasActiveFGC) {
+            prefix += "<color>";
+            hasActiveFGC = false;
+          }
+
+          if (nextFGC) {
+            prefix += `<color="#${nextFGC}">`;
+            hasActiveFGC = true;
+          }
+
+          currentFGC = nextFGC;
+        }
+
+        if (nextBGC !== currentBGC) {
+          if (hasActiveBGC) {
+            prefix += "<bgcolor>";
+            hasActiveBGC = false;
+          }
+
+          if (nextBGC) {
+            prefix += `<bgcolor="#${nextBGC}">`;
+            hasActiveBGC = true;
+          }
+
+          currentBGC = nextBGC;
+        }
+
+        return `${prefix}${escapeMdsText(cell.char)}`;
+      })
+      .join("");
+
+    return `${line}${hasActiveBGC ? "<bgcolor>" : ""}${hasActiveFGC ? "<color>" : ""}`;
+  });
+
+  return `<clear>\n${lines.join("\n")}`;
+}
+
+function trimExportRow<T extends { char: string }>(row: T[]) {
+  let end = row.length;
+
+  while (end > 0 && row[end - 1].char === " ") {
+    end -= 1;
+  }
+
+  return row.slice(0, end);
+}
+
+function createExportFilename(name: string, format: ExportFormat) {
+  const baseName = toSafeJsonFilename(name);
+
+  if (format === "ansi") {
+    return `${baseName}.ansi.txt`;
+  }
+
+  if (format === "mds") {
+    return `${baseName}.mds`;
+  }
+
+  return `${baseName}.txt`;
+}
+
+function hexToRgbTriplet(hexColor: string) {
+  return [hexColor.slice(0, 2), hexColor.slice(2, 4), hexColor.slice(4, 6)].map((value) => Number.parseInt(value, 16)).join(";");
+}
+
+function escapeMdsText(value: string) {
+  return value;
 }
 
 function downloadTextFile(filename: string, content: string, mimeType: string) {

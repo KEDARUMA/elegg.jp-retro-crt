@@ -765,6 +765,10 @@ button {
   width: min(420px, calc(100vw - 32px));
 }
 
+.export-document-modal {
+  width: min(360px, calc(100vw - 32px));
+}
+
 .save-document-label {
   display: grid;
   gap: 6px;
@@ -784,6 +788,27 @@ button {
 .save-document-input:focus {
   border-color: #eeeeee;
   outline: 0;
+}
+
+.export-option-group {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.export-option-group legend {
+  margin-bottom: 2px;
+  color: #bbbbbb;
+  font-size: 12px;
+}
+
+.export-option-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
 }
 
 .confirm-modal-actions {
