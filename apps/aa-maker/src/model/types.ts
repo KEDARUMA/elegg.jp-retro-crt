@@ -41,13 +41,16 @@ export type Document = {
 };
 
 export type CompositedCell = {
+  kind: "empty" | "char" | "wide-tail";
   char: string;
+  width: 1 | 2;
   fgc: Color | null;
   bgc: Color;
   sourceLayerId: string | null;
+  headX?: number;
 };
 
-export type Selection =
+export type Highlight =
   | { kind: "none" }
   | {
       kind: "rect";
@@ -55,9 +58,20 @@ export type Selection =
       y: number;
       width: number;
       height: number;
+      contents: CellGrid;
+      origin: HighlightOrigin | null;
     };
 
-export type Tool = "move" | "select" | "eyedropper" | "pen" | "eraser" | "text" | "stamp" | "range-color";
+export type HighlightOrigin = {
+  layerId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  cells: CellGrid;
+};
+
+export type Tool = "select" | "eyedropper" | "pen" | "eraser" | "text" | "stamp" | "range-color";
 
 export type ToolState = {
   activeTool: Tool;
@@ -65,7 +79,7 @@ export type ToolState = {
   selectedCharWidth: 1 | 2;
   selectedFGC: Color;
   selectedBGC: Color | null;
-  selection: Selection;
+  highlight: Highlight;
   zoom: number;
 };
 

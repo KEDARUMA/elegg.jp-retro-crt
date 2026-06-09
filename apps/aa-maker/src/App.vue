@@ -40,7 +40,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @invert-canvas-background="aaMaker.invertCanvasBackground"
     />
     <Toolbox
-      :tools="aaMaker.tools"
+      :tools="aaMaker.tools.value"
       :active-tool="aaMaker.toolState.activeTool"
       :selected-char="aaMaker.toolState.selectedChar"
       :selected-foreground-color="aaMaker.toolState.selectedFGC"
@@ -57,12 +57,23 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :get-cell-style="aaMaker.getCellStyle"
       :grid-line-style="aaMaker.gridLineStyle.value"
       :selection-style="aaMaker.selectionStyle.value"
+      :highlight-cells="aaMaker.highlightCells.value"
       :stamp-preview-cells="aaMaker.stampPreviewCells.value"
+      :text-draft="aaMaker.textDraft.value"
+      :selected-foreground-color="aaMaker.toolState.selectedFGC"
+      :selected-background-color="aaMaker.toolState.selectedBGC"
+      :canvas-background-color="aaMaker.documentModel.canvasBGC"
       @cell-enter="aaMaker.handleCellEnter"
       @cell-down="aaMaker.handleCellDown"
       @cell-up="aaMaker.handleCellUp"
       @cell-context="aaMaker.handleCellContext"
+      @grid-measure-down="aaMaker.handleGridMeasureDown"
       @grid-wheel="aaMaker.handleGridWheel"
+      @highlight-context="aaMaker.handleHighlightContext"
+      @highlight-move="aaMaker.handleHighlightMove"
+      @text-editor-update="aaMaker.updateTextEditorValue"
+      @text-editor-confirm="aaMaker.confirmTextEditor"
+      @text-editor-cancel="aaMaker.closeTextEditor"
     />
     <SidePanel
       :palettes="aaMaker.palettes"
@@ -106,7 +117,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       class="selection-context-menu"
       :style="aaMaker.selectionContextMenuStyle?.value"
       role="menu"
-      aria-label="Selection actions"
+      aria-label="Highlight actions"
       @pointerdown.stop
       @contextmenu.prevent.stop
     >

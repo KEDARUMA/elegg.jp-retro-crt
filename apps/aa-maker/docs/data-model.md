@@ -21,7 +21,7 @@
 - `Cell`
 - `Layer`
 - `Document`
-- `Selection`
+- `Highlight`
 - `ToolState`
 - `CharPalette`
 - `Stamp`
@@ -188,10 +188,13 @@ type Document = {
 
 ```ts
 type CompositedCell = {
+  kind: "empty" | "char" | "wide-tail";
   char: string;
+  width: 1 | 2;
   fgc: Color | null;
   bgc: Color;
   sourceLayerId: string | null;
+  headX?: number;
 };
 ```
 
@@ -202,15 +205,19 @@ type CompositedCell = {
 - `CharCell` は表示対象になる。
 - `CharCell.bgc === null` の場合、背景は `Document.canvasBGC` を使う。
 - `CharCell.bgc` が色値を持つ場合、背景はその `BGC` を使う。
+- 全角文字は合成結果でも head / tail の 2 セル占有として扱う。
+- 全角文字の tail は、下位レイヤーを透過しない占有セルとして扱う。
+- 合成後に head / tail の片側だけが上位レイヤーで覆われた全角文字は、片側だけを表示しない。
 - 上位レイヤーの空白セルは下位レイヤーを透過する。
 - すべてのレイヤーが空の場合、表示上は通常スペース `' '` と `Document.canvasBGC` を使う。
 
-## Selection
+## Highlight
 
-`Selection` は範囲選択や配置後選択を表す。
+`Highlight` は、範囲選択、スタンプ配置、テキスト確定、貼り付けで生成される共通の編集対象を表す。
+移動中のハイライトは表示上の位置だけを変更し、確定するまで編集対象レイヤーのセル本体には反映しない。
 
 ```ts
-type Selection =
+type Highlight =
   | { kind: "none" }
   | {
       kind: "rect";
@@ -218,16 +225,37 @@ type Selection =
       y: number;
       width: number;
       height: number;
+      contents: CellGrid;
+      origin: HighlightOrigin | null;
     };
+
+type HighlightOrigin = {
+  layerId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  cells: CellGrid;
+};
 ```
 
 ルール:
 
-- `x` / `y` は 0 始まり。
+- `x` / `y` はハイライト左上の表示位置を表す。
+- `x` / `y` はグリッド外移動を許容するため、負数またはグリッド外座標を取り得る。
 - `width` / `height` はセル数。
-- 未選択時、情報表示の `W` / `H` は `--`。
-- 範囲選択中に全角文字の一部が含まれる場合、操作対象は全角文字全体に拡張する。
-- スタンプ配置後は、配置された範囲を `rect` として選択状態にする。
+- `contents` はハイライト内のセル内容を表し、サイズは `height x width` とする。
+- `contents` 内の `EmptyCell` は通常確定では転写先セルを空白にし、透明確定では転写しない。
+- `contents` 内の `U+00A0 NBSP / no-break space` は、透明確定でも `CharCell` として転写する。
+- `origin` は、範囲選択からハイライトを生成して元セルを一時クリアした場合の復元元を表す。
+- `origin: null` は、スタンプ、テキスト、貼り付けなど復元元を持たないハイライトを表す。
+- 未表示時、情報表示の `W` / `H` は `--`。
+- 範囲選択から生成する場合に全角文字の一部が含まれるときは、`contents` は全角文字全体を含む範囲に拡張する。
+- ハイライト中のコピー、削除、fill、文字色設定、背景色設定は `contents` に対して適用する。
+- `Esc` でキャンセルした場合、`contents` への変更は破棄し、`origin` がある場合は `origin.cells` を元レイヤーへ復元する。
+- 確定時は、グリッド内に収まる `contents` だけをアクティブレイヤーへ転写する。
+- 通常確定では `EmptyCell` も転写し、転写先を空白にする。
+- 透明確定では `EmptyCell` を透過し、転写先を変更しない。
 
 ## ToolState
 
@@ -235,7 +263,6 @@ type Selection =
 
 ```ts
 type Tool =
-  | "move"
   | "select"
   | "eyedropper"
   | "pen"
@@ -249,7 +276,7 @@ type ToolState = {
   selectedChar: string;
   selectedFGC: Color;
   selectedBGC: Color | null;
-  selection: Selection;
+  highlight: Highlight;
   zoom: number;
 };
 ```
@@ -258,7 +285,7 @@ type ToolState = {
 
 - `selectedBGC: null` は、背景カラーなしを表す。
 - 左ツールボックス最下部の選択中文字表示は `selectedChar` / `selectedFGC` / `selectedBGC` を表示する。
-- `range-color` は範囲選択中のみ選択可能。
+- `range-color` はハイライト表示中のみ選択可能。
 - `zoom` は連続値で管理し、論理グリッドサイズには影響しない。
 
 ## CharPalette
@@ -382,8 +409,9 @@ type ColorStamp = {
 配置ルール:
 
 - カーソル位置を左上として配置する。
-- グリッド外にはみ出す場合は、収まる範囲だけ配置する。
-- 配置後は、配置された範囲を `Selection` に設定する。
+- グリッド外にはみ出す場合も、スタンプ全体を `Highlight.contents` として保持する。
+- 配置後は、スタンプ contents を持つ `Highlight` を生成する。
+- セルへの転写は、ハイライト確定時にグリッド内へ収まる範囲だけ行う。
 
 ## ColorScheme
 
@@ -401,8 +429,8 @@ type ColorScheme = {
 
 - 選択中文字表示の左クリックで `selectedFGC` を変更する。
 - 選択中文字表示の右クリックで `selectedBGC` を変更する。
-- 範囲カラーの左クリックで範囲内キャラありセルの `FGC` を変更する。
-- 範囲カラーの右クリックで範囲内キャラありセルの `BGC` を変更する。
+- 範囲カラーの左クリックでハイライト contents 内キャラありセルの `FGC` を変更する。
+- 範囲カラーの右クリックでハイライト contents 内キャラありセルの `BGC` を変更する。
 - 範囲カラー右クリック側では「カラーなし」を選択できる。
 
 ## View 実装用の仮データ
@@ -415,6 +443,7 @@ View 先行実装では、以下の仮データを用意する。
 - `selectedFGC: "00ff00"`
 - `selectedBGC: null`
 - `canvasBGC: "ffffff"`
+- `highlight: { kind: "none" }`
 - 通常キャラパレット 1 セット
 - ヒストリーパレット 1 セット
 - Unicode 文字表のダミー表示

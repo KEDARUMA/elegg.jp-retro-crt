@@ -29,7 +29,7 @@ export function createInitialToolState(): ToolState {
     selectedCharWidth: 1,
     selectedFGC: DEFAULT_SELECTED_FGC,
     selectedBGC: null,
-    selection: { kind: "none" },
+    highlight: { kind: "none" },
     zoom: 1,
   };
 }

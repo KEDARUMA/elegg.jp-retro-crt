@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import InlineTextEditor from "./InlineTextEditor.vue";
 
 type GridCell = {
   x: number;
@@ -21,7 +22,12 @@ defineProps<{
   getCellStyle: (x: number, y: number) => Record<string, string>;
   gridLineStyle: Record<string, string>;
   selectionStyle: Record<string, string> | null;
+  highlightCells: StampPreviewCell[];
   stampPreviewCells: StampPreviewCell[];
+  textDraft: { x: number; y: number; value: string } | null;
+  selectedForegroundColor: string;
+  selectedBackgroundColor: string | null;
+  canvasBackgroundColor: string;
 }>();
 
 const emit = defineEmits<{
@@ -29,7 +35,13 @@ const emit = defineEmits<{
   cellDown: [x: number, y: number, event: PointerEvent];
   cellUp: [x: number, y: number];
   cellContext: [x: number, y: number, event: MouseEvent];
+  gridMeasureDown: [event: PointerEvent];
   gridWheel: [event: WheelEvent];
+  highlightContext: [event: MouseEvent];
+  highlightMove: [deltaX: number, deltaY: number];
+  textEditorUpdate: [value: string];
+  textEditorConfirm: [];
+  textEditorCancel: [];
 }>();
 
 const topRulerMarks = Array.from({ length: 9 }, (_, index) => index * 10);
@@ -47,6 +59,13 @@ const activePan = ref<{
   startY: number;
   baseX: number;
   baseY: number;
+} | null>(null);
+const activeHighlightDrag = ref<{
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lastCellDeltaX: number;
+  lastCellDeltaY: number;
 } | null>(null);
 const stageStyle = computed(() => ({
   transform: `translate(${panOffset.value.x}px, ${panOffset.value.y}px)`,
@@ -164,6 +183,57 @@ function handleViewportPointerEnd(event: PointerEvent) {
   (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
 }
 
+function handleHighlightPointerDown(event: PointerEvent) {
+  if (event.button !== 0) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  activeHighlightDrag.value = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastCellDeltaX: 0,
+    lastCellDeltaY: 0,
+  };
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+
+function handleHighlightPointerMove(event: PointerEvent) {
+  const drag = activeHighlightDrag.value;
+
+  if (!drag || drag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  const cellDeltaX = Math.round((event.clientX - drag.startX) / Math.max(1, getCellWidth()));
+  const cellDeltaY = Math.round((event.clientY - drag.startY) / Math.max(1, getCellHeight()));
+  const diffX = cellDeltaX - drag.lastCellDeltaX;
+  const diffY = cellDeltaY - drag.lastCellDeltaY;
+
+  if (diffX !== 0 || diffY !== 0) {
+    emit("highlightMove", diffX, diffY);
+    drag.lastCellDeltaX = cellDeltaX;
+    drag.lastCellDeltaY = cellDeltaY;
+  }
+}
+
+function handleHighlightPointerEnd(event: PointerEvent) {
+  const drag = activeHighlightDrag.value;
+
+  if (!drag || drag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  activeHighlightDrag.value = null;
+  (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+}
+
 function handleViewportWheel(event: WheelEvent) {
   emit("gridWheel", event);
   requestAnimationFrame(updateLayoutSize);
@@ -259,7 +329,31 @@ function clamp(value: number, min: number, max: number) {
             {{ getCellText(cell.x, cell.y) }}
           </div>
           <div class="aa-grid-lines" :style="gridLineStyle" aria-hidden="true"></div>
-          <div v-if="selectionStyle" class="aa-selection" :style="selectionStyle" aria-hidden="true"></div>
+          <div
+            v-if="selectionStyle"
+            class="aa-selection"
+            :style="selectionStyle"
+            aria-label="Highlight"
+            @pointerdown="handleHighlightPointerDown"
+            @pointermove="handleHighlightPointerMove"
+            @pointerup="handleHighlightPointerEnd"
+            @pointercancel="handleHighlightPointerEnd"
+            @contextmenu.prevent.stop="emit('highlightContext', $event)"
+          ></div>
+          <div
+            v-for="(highlightCell, index) in highlightCells"
+            :key="`highlight-${highlightCell.x},${highlightCell.y},${index}`"
+            class="aa-highlight-cell"
+            :class="highlightCell.className"
+            :style="{
+              ...highlightCell.style,
+              left: `calc(var(--cell-width) * ${highlightCell.x})`,
+              top: `calc(var(--cell-height) * ${highlightCell.y})`,
+            }"
+            aria-hidden="true"
+          >
+            {{ highlightCell.text }}
+          </div>
           <div
             v-for="previewCell in stampPreviewCells"
             :key="`${previewCell.x},${previewCell.y}`"
@@ -274,10 +368,19 @@ function clamp(value: number, min: number, max: number) {
           >
             {{ previewCell.text }}
           </div>
+          <InlineTextEditor
+            :draft="textDraft"
+            :selected-foreground-color="selectedForegroundColor"
+            :selected-background-color="selectedBackgroundColor"
+            :canvas-background-color="canvasBackgroundColor"
+            @update-value="(value) => $emit('textEditorUpdate', value)"
+            @confirm="$emit('textEditorConfirm')"
+            @cancel="$emit('textEditorCancel')"
+          />
         </div>
       </div>
-      <div class="ruler-corner" :style="cornerStyle" aria-hidden="true"></div>
-      <div class="top-ruler" :style="topRulerStyle" aria-hidden="true">
+      <div class="ruler-corner" :style="cornerStyle" aria-hidden="true" @pointerdown.stop="emit('gridMeasureDown', $event)"></div>
+      <div class="top-ruler" :style="topRulerStyle" aria-hidden="true" @pointerdown.stop="emit('gridMeasureDown', $event)">
         <span class="top-ruler-mark ruler-current-mark" :style="{ left: '0px' }">
           {{ visibleStartCell.x }}
         </span>
@@ -285,7 +388,7 @@ function clamp(value: number, min: number, max: number) {
           {{ mark }}
         </span>
       </div>
-      <div class="left-ruler" :style="leftRulerStyle" aria-hidden="true">
+      <div class="left-ruler" :style="leftRulerStyle" aria-hidden="true" @pointerdown.stop="emit('gridMeasureDown', $event)">
         <span class="left-ruler-mark ruler-current-mark" :style="{ top: '0px' }">
           {{ visibleStartCell.y }}
         </span>

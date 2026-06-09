@@ -1,7 +1,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import eraserIcon from "../assets/icons/eraser.svg?raw";
 import eyedropperIcon from "../assets/icons/eyedropper.svg?raw";
-import moveIcon from "../assets/icons/move-alt.svg?raw";
 import paletteIcon from "../assets/icons/palette.svg?raw";
 import penIcon from "../assets/icons/pen.svg?raw";
 import selectIcon from "../assets/icons/select.svg?raw";
@@ -10,9 +9,9 @@ import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
 import stamps from "../data/stamps.json";
 import { composeDocument } from "../model/composeLayers";
-import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
+import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
-import type { Cell, Color, ColorScheme, Document as AaDocument, Layer, Selection, Stamp, Tool } from "../model/types";
+import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -66,12 +65,14 @@ type StampPreviewCell = {
 type ExportFormat = "plain" | "ansi" | "mds";
 type ExportDestination = "download" | "clipboard";
 type ColorPickerTarget = "selected" | "selection";
-type PasteTextOptions = {
-  transparentSpaces?: boolean;
-};
 type HistorySnapshot = {
   document: AaDocument;
-  selection: Selection;
+  highlight: Highlight;
+};
+type TextDraft = {
+  x: number;
+  y: number;
+  value: string;
 };
 type RectSelection = {
   kind: "rect";
@@ -80,6 +81,8 @@ type RectSelection = {
   width: number;
   height: number;
 };
+
+type HighlightRect = Extract<Highlight, { kind: "rect" }>;
 
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
@@ -140,6 +143,7 @@ export function useAaMaker() {
   const gridZoom = ref(toolState.zoom);
   const isDrawing = ref(false);
   const selectionAnchor = ref<{ x: number; y: number } | null>(null);
+  const draftSelection = ref<RectSelection | null>(null);
   const lastDrawnCellKey = ref<string | null>(null);
   const lastDrawnPosition = ref<{ x: number; y: number } | null>(null);
   const cursorPosition = ref<{ x: number; y: number } | null>(null);
@@ -148,14 +152,9 @@ export function useAaMaker() {
   const selectionContextMenu = ref<{ x: number; y: number } | null>(null);
   const undoStack = ref<HistorySnapshot[]>([]);
   const redoStack = ref<HistorySnapshot[]>([]);
+  const textDraft = ref<TextDraft | null>(null);
 
-  const tools = [
-    {
-      id: "move",
-      label: "移動",
-      icon: moveIcon,
-      implemented: false,
-    },
+  const tools = computed<{ id: Tool; label: string; icon: string; implemented: boolean }[]>(() => [
     {
       id: "select",
       label: "範囲選択",
@@ -184,7 +183,7 @@ export function useAaMaker() {
       id: "text",
       label: "テキスト",
       icon: textIcon,
-      implemented: false,
+      implemented: true,
     },
     {
       id: "stamp",
@@ -196,9 +195,9 @@ export function useAaMaker() {
       id: "range-color",
       label: "範囲カラー",
       icon: paletteIcon,
-      implemented: false,
+      implemented: toolState.highlight.kind === "rect",
     },
-  ] as const;
+  ]);
 
   const gridCells = Array.from({ length: GRID_COLUMNS * GRID_ROWS }, (_, index) => ({
     x: index % GRID_COLUMNS,
@@ -217,7 +216,7 @@ export function useAaMaker() {
 
     return selectedColorPickerMode.value === "fgc" ? toolState.selectedFGC : (toolState.selectedBGC ?? documentModel.canvasBGC);
   });
-  const colorPickerAllowsNone = computed(() => colorPickerTarget.value === "selected" && selectedColorPickerMode.value === "bgc");
+  const colorPickerAllowsNone = computed(() => selectedColorPickerMode.value === "bgc");
   const selectionContextMenuStyle = computed(() => {
     if (!selectionContextMenu.value) {
       return null;
@@ -229,15 +228,19 @@ export function useAaMaker() {
     };
   });
   const selectionStyle = computed(() => {
-    if (toolState.selection.kind !== "rect") {
+    const rect = draftSelection.value ?? getRectHighlight();
+
+    if (!rect) {
       return null;
     }
 
     return {
-      left: `calc(var(--cell-width) * ${toolState.selection.x})`,
-      top: `calc(var(--cell-height) * ${toolState.selection.y})`,
-      width: `calc(var(--cell-width) * ${toolState.selection.width})`,
-      height: `calc(var(--cell-height) * ${toolState.selection.height})`,
+      left: `calc(var(--cell-width) * ${rect.x})`,
+      top: `calc(var(--cell-height) * ${rect.y})`,
+      width: `calc(var(--cell-width) * ${rect.width})`,
+      height: `calc(var(--cell-height) * ${rect.height})`,
+      pointerEvents: draftSelection.value ? "none" : "auto",
+      cursor: draftSelection.value ? "default" : "move",
     };
   });
   const gridLineStyle = computed(() => {
@@ -276,7 +279,39 @@ export function useAaMaker() {
       return [];
     }
 
+    if (toolState.highlight.kind === "rect") {
+      return [];
+    }
+
     return getStampPreviewCells(activeStamp.value, cursorPosition.value.x, cursorPosition.value.y);
+  });
+  const highlightCells = computed(() => {
+    const highlight = getRectHighlight();
+
+    if (!highlight) {
+      return [];
+    }
+
+    return getHighlightPreviewCells(highlight);
+  });
+  const textEditorStyle = computed(() => {
+    if (!textDraft.value) {
+      return null;
+    }
+
+    const widthCells = getTextEditorWidthCells(textDraft.value.value, textDraft.value.x);
+    const heightCells = getTextEditorHeightCells(textDraft.value.value, textDraft.value.y);
+    const panelWidthCells = widthCells;
+    const panelHeightCells = heightCells + 2;
+
+    return {
+      left: `calc(var(--cell-width) * ${clamp(textDraft.value.x, 0, GRID_COLUMNS - panelWidthCells)})`,
+      top: `calc(var(--cell-height) * ${clamp(textDraft.value.y, 0, GRID_ROWS - panelHeightCells)})`,
+      width: `calc(var(--cell-width) * ${panelWidthCells})`,
+      height: `calc(var(--cell-height) * ${panelHeightCells})`,
+      "--editor-width-cells": String(widthCells),
+      "--editor-height-cells": String(heightCells),
+    };
   });
   const layerList = computed(() => [...documentModel.layers].reverse());
   const info = computed(() => {
@@ -301,8 +336,8 @@ export function useAaMaker() {
     return {
       x: String(position.x),
       y: String(position.y),
-      w: toolState.selection.kind === "rect" ? String(toolState.selection.width) : "--",
-      h: toolState.selection.kind === "rect" ? String(toolState.selection.height) : "--",
+      w: (draftSelection.value ?? getRectHighlight())?.width.toString() ?? "--",
+      h: (draftSelection.value ?? getRectHighlight())?.height.toString() ?? "--",
       char: cell?.char ?? null,
       code: cell ? getUnicodeCodeLabel(cell.char) : "U+----",
       fgc: cell?.fgc ?? "------",
@@ -325,11 +360,11 @@ export function useAaMaker() {
   });
 
   function selectTool(tool: Tool) {
-    toolState.activeTool = tool;
-
-    if (tool !== "select") {
-      clearSelection();
+    if (tool !== "text") {
+      closeTextEditor();
     }
+
+    toolState.activeTool = tool;
   }
 
   function openSelectedFGCColorPicker() {
@@ -391,8 +426,10 @@ export function useAaMaker() {
       }
 
       Object.assign(documentModel, loadedDocument);
-      toolState.selection = { kind: "none" };
+      toolState.highlight = { kind: "none" };
+      draftSelection.value = null;
       cursorPosition.value = null;
+      closeTextEditor();
       undoStack.value = [];
       redoStack.value = [];
     } catch {
@@ -604,19 +641,31 @@ export function useAaMaker() {
       return;
     }
 
-    if (event.key === "Escape" && toolState.selection.kind === "rect") {
+    if (event.key === "Enter" && toolState.highlight.kind === "rect") {
       event.preventDefault();
-      clearSelection();
+      commitHighlight({ transparent: event.ctrlKey });
       return;
     }
 
-    if (event.key === "Delete" && toolState.selection.kind === "rect") {
+    if (event.key === "Escape" && toolState.highlight.kind === "rect") {
+      event.preventDefault();
+      cancelHighlight();
+      return;
+    }
+
+    if (event.key === "Delete" && toolState.highlight.kind === "rect") {
       event.preventDefault();
       deleteSelection();
       return;
     }
 
-    if ((event.ctrlKey || event.metaKey) && key === "c" && toolState.selection.kind === "rect") {
+    if (event.key.startsWith("Arrow") && toolState.highlight.kind === "rect") {
+      event.preventDefault();
+      moveHighlightByKey(event.key, event.shiftKey ? 10 : 1);
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && key === "c" && toolState.highlight.kind === "rect") {
       event.preventDefault();
       void copySelectionToClipboard();
       return;
@@ -624,7 +673,7 @@ export function useAaMaker() {
 
     if ((event.ctrlKey || event.metaKey) && key === "v") {
       event.preventDefault();
-      void pasteSelectionFromClipboard({ transparentSpaces: isTransparentPasteShortcut(event) });
+      void pasteSelectionFromClipboard();
     }
   }
 
@@ -670,16 +719,26 @@ export function useAaMaker() {
 
     event.preventDefault();
 
+    if (toolState.highlight.kind === "rect") {
+      if (!isPointInHighlight(x, y)) {
+        commitHighlight({ transparent: event.ctrlKey });
+      }
+      return;
+    }
+
     if (toolState.activeTool === "eyedropper") {
       applyTool(x, y);
       return;
     }
 
     if (toolState.activeTool === "stamp") {
-      if (getEditableActiveLayer()) {
-        recordDocumentHistory();
-      }
       applyTool(x, y);
+      return;
+    }
+
+    if (toolState.activeTool === "text") {
+      cursorPosition.value = { x, y };
+      openTextEditor(x, y);
       return;
     }
 
@@ -704,7 +763,7 @@ export function useAaMaker() {
   function handleCellContext(x: number, y: number, event: MouseEvent) {
     event.preventDefault();
 
-    if (toolState.selection.kind === "rect") {
+    if (toolState.highlight.kind === "rect") {
       cursorPosition.value = { x, y };
       openSelectionContextMenu(event.clientX, event.clientY);
       return;
@@ -759,7 +818,7 @@ export function useAaMaker() {
     }
 
     if (toolState.activeTool === "stamp") {
-      placeStamp(activeLayer, x, y);
+      placeStamp(x, y);
     }
 
     cursorPosition.value = { x, y };
@@ -793,10 +852,15 @@ export function useAaMaker() {
   }
 
   function stopDrawing() {
+    const shouldFinalizeSelection = isDrawing.value && toolState.activeTool === "select" && draftSelection.value !== null;
     isDrawing.value = false;
     selectionAnchor.value = null;
     lastDrawnCellKey.value = null;
     lastDrawnPosition.value = null;
+
+    if (shouldFinalizeSelection) {
+      finalizeDraftSelection();
+    }
   }
 
   function updateSelection(x: number, y: number) {
@@ -808,7 +872,7 @@ export function useAaMaker() {
     const right = Math.max(anchor.x, x);
     const bottom = Math.max(anchor.y, y);
 
-    toolState.selection = {
+    draftSelection.value = {
       kind: "rect",
       x: left,
       y: top,
@@ -819,32 +883,152 @@ export function useAaMaker() {
     cursorPosition.value = { x, y };
   }
 
-  function deleteSelection() {
-    const selection = getRectSelection();
+  function finalizeDraftSelection() {
+    const draft = draftSelection.value;
     const activeLayer = getEditableActiveLayer();
 
-    if (!selection || !activeLayer) {
+    draftSelection.value = null;
+
+    if (!draft || !activeLayer) {
+      return;
+    }
+
+    if (toolState.highlight.kind === "rect") {
+      cancelHighlight();
+    }
+
+    const selection = expandSelectionForWideCells(activeLayer, draft);
+    const contents = copyLayerCells(activeLayer, selection);
+
+    recordDocumentHistory();
+    clearLayerRect(activeLayer, selection.x, selection.y, selection.width, selection.height);
+    toolState.highlight = {
+      ...selection,
+      contents,
+      origin: {
+        layerId: activeLayer.id,
+        x: selection.x,
+        y: selection.y,
+        width: selection.width,
+        height: selection.height,
+        cells: cloneCellGrid(contents),
+      },
+    };
+  }
+
+  function commitHighlight(options: { transparent?: boolean } = {}) {
+    const highlight = getRectHighlight();
+    const activeLayer = getEditableActiveLayer();
+
+    if (!highlight || !activeLayer) {
       return;
     }
 
     recordDocumentHistory();
-    eraseSelectionCells(activeLayer, selection);
+    writeHighlightToLayer(activeLayer, highlight, Boolean(options.transparent));
+    clearHighlightOnly();
   }
 
-  function clearSelection() {
-    toolState.selection = { kind: "none" };
+  function cancelHighlight() {
+    const highlight = getRectHighlight();
+
+    if (highlight?.origin) {
+      const originLayer = documentModel.layers.find((layer) => layer.id === highlight.origin?.layerId);
+
+      if (originLayer) {
+        writeCellGridToLayer(originLayer, highlight.origin.x, highlight.origin.y, highlight.origin.cells);
+      }
+    }
+
+    clearHighlightOnly();
+  }
+
+  function moveHighlightByKey(key: string, amount: number) {
+    switch (key) {
+      case "ArrowLeft":
+        moveHighlight(-amount, 0);
+        break;
+      case "ArrowRight":
+        moveHighlight(amount, 0);
+        break;
+      case "ArrowUp":
+        moveHighlight(0, -amount);
+        break;
+      case "ArrowDown":
+        moveHighlight(0, amount);
+        break;
+    }
+  }
+
+  function moveHighlight(deltaX: number, deltaY: number) {
+    const highlight = getRectHighlight();
+
+    if (!highlight || (deltaX === 0 && deltaY === 0)) {
+      return;
+    }
+
+    toolState.highlight = {
+      ...highlight,
+      x: highlight.x + deltaX,
+      y: highlight.y + deltaY,
+    };
+  }
+
+  function handleHighlightMove(deltaX: number, deltaY: number) {
+    moveHighlight(deltaX, deltaY);
+  }
+
+  function isPointInHighlight(x: number, y: number) {
+    const highlight = getRectHighlight();
+
+    return Boolean(highlight && x >= highlight.x && x < highlight.x + highlight.width && y >= highlight.y && y < highlight.y + highlight.height);
+  }
+
+  function handleGridMeasureDown(event: PointerEvent) {
+    if (event.button !== 0 || toolState.highlight.kind !== "rect") {
+      return;
+    }
+
+    event.preventDefault();
+    commitHighlight({ transparent: event.ctrlKey });
+  }
+
+  function handleHighlightContext(event: MouseEvent) {
+    if (toolState.highlight.kind !== "rect") {
+      return;
+    }
+
+    event.preventDefault();
+    openSelectionContextMenu(event.clientX, event.clientY);
+  }
+
+  function deleteSelection() {
+    const highlight = getRectHighlight();
+
+    if (!highlight) {
+      return;
+    }
+
+    recordDocumentHistory();
+    replaceHighlightContents(createEmptyCellGrid(highlight.width, highlight.height));
+  }
+
+  function clearHighlightOnly() {
+    toolState.highlight = { kind: "none" };
+    draftSelection.value = null;
     closeSelectionContextMenu();
   }
 
   function selectAllGrid() {
     toolState.activeTool = "select";
-    toolState.selection = {
+    draftSelection.value = {
       kind: "rect",
       x: 0,
       y: 0,
       width: GRID_COLUMNS,
       height: GRID_ROWS,
     };
+    finalizeDraftSelection();
     closeSelectionContextMenu();
   }
 
@@ -883,20 +1067,22 @@ export function useAaMaker() {
   function createHistorySnapshot(): HistorySnapshot {
     return {
       document: cloneDocument(documentModel),
-      selection: cloneSelection(toolState.selection),
+      highlight: cloneHighlight(toolState.highlight),
     };
   }
 
   function restoreHistorySnapshot(snapshot: HistorySnapshot) {
     Object.assign(documentModel, cloneDocument(snapshot.document));
-    toolState.selection = cloneSelection(snapshot.selection);
+    toolState.highlight = cloneHighlight(snapshot.highlight);
+    draftSelection.value = null;
     closeSelectionContextMenu();
+    closeTextEditor();
   }
 
   async function copySelectionToClipboard() {
-    const selection = getRectSelection();
+    const highlight = getRectHighlight();
 
-    if (!selection) {
+    if (!highlight) {
       return;
     }
 
@@ -906,17 +1092,16 @@ export function useAaMaker() {
     }
 
     try {
-      await navigator.clipboard.writeText(getSelectionText(selection));
+      await navigator.clipboard.writeText(getSelectionText(highlight));
     } catch {
       window.alert("Copy failed: could not write to clipboard.");
     }
   }
 
-  async function pasteSelectionFromClipboard(options: PasteTextOptions = {}) {
+  async function pasteSelectionFromClipboard() {
     const selection = getPasteOriginSelection();
-    const activeLayer = getEditableActiveLayer();
 
-    if (!activeLayer) {
+    if (!getEditableActiveLayer()) {
       return;
     }
 
@@ -927,8 +1112,10 @@ export function useAaMaker() {
 
     try {
       const text = await navigator.clipboard.readText();
-      recordDocumentHistory();
-      pasteTextAtSelection(activeLayer, selection, text, options);
+      if (toolState.highlight.kind === "rect") {
+        cancelHighlight();
+      }
+      createPasteHighlight(selection, text);
       toolState.activeTool = "select";
     } catch {
       window.alert("Paste failed: could not read from clipboard.");
@@ -936,42 +1123,44 @@ export function useAaMaker() {
   }
 
   function fillSelectionWithChar(char: string, width: 1 | 2) {
-    const selection = getRectSelection();
-    const activeLayer = getEditableActiveLayer();
+    const highlight = getRectHighlight();
 
-    if (!selection || !activeLayer) {
+    if (!highlight) {
       return;
     }
 
     recordDocumentHistory();
-    eraseSelectionCells(activeLayer, selection);
+    const layer = createHighlightLayer(highlight.width, highlight.height);
 
-    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
-      for (let x = selection.x; x < selection.x + selection.width; x += width) {
-        if (x + width > selection.x + selection.width) {
+    for (let y = 0; y < highlight.height; y += 1) {
+      for (let x = 0; x < highlight.width; x += width) {
+        if (x + width > highlight.width) {
           break;
         }
 
-        placeChar(activeLayer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
+        placeChar(layer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
       }
     }
+
+    replaceHighlightContents(layer.cells);
   }
 
   function fillEmptySelectionWithChar(char: string, width: 1 | 2) {
-    const selection = getRectSelection();
-    const activeLayer = getEditableActiveLayer();
+    const highlight = getRectHighlight();
 
-    if (!selection || !activeLayer) {
+    if (!highlight) {
       return;
     }
 
     recordDocumentHistory();
-    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
-      let x = selection.x;
+    const layer = createHighlightLayer(highlight.width, highlight.height, highlight.contents);
 
-      while (x < selection.x + selection.width) {
-        if (canPlaceCharOnEmptyCells(activeLayer, selection, x, y, width)) {
-          placeChar(activeLayer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
+    for (let y = 0; y < highlight.height; y += 1) {
+      let x = 0;
+
+      while (x < highlight.width) {
+        if (canPlaceCharOnEmptyCells(layer, x, y, width)) {
+          placeChar(layer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
           x += width;
           continue;
         }
@@ -979,20 +1168,21 @@ export function useAaMaker() {
         x += 1;
       }
     }
+
+    replaceHighlightContents(layer.cells);
   }
 
   function clearSelectionColors() {
-    const selection = getRectSelection();
-    const activeLayer = getEditableActiveLayer();
+    const highlight = getRectHighlight();
 
     closeSelectionContextMenu();
 
-    if (!selection || !activeLayer) {
+    if (!highlight) {
       return;
     }
 
     recordDocumentHistory();
-    forEachCharCellInSelection(activeLayer, selection, (cell) => {
+    forEachCharCellInHighlight(highlight, (cell) => {
       cell.fgc = getForegroundDefaultColor();
       cell.bgc = null;
     });
@@ -1007,15 +1197,14 @@ export function useAaMaker() {
   }
 
   function applySelectionColor(mode: "fgc" | "bgc", color: Color | null) {
-    const selection = getRectSelection();
-    const activeLayer = getEditableActiveLayer();
+    const highlight = getRectHighlight();
 
-    if (!selection || !activeLayer) {
+    if (!highlight) {
       return;
     }
 
     recordDocumentHistory();
-    forEachCharCellInSelection(activeLayer, selection, (cell) => {
+    forEachCharCellInHighlight(highlight, (cell) => {
       if (mode === "fgc") {
         if (color !== null) {
           cell.fgc = color;
@@ -1035,25 +1224,23 @@ export function useAaMaker() {
     selectionContextMenu.value = null;
   }
 
-  function eraseSelectionCells(layer: Layer, selection: RectSelection) {
-    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
-      for (let x = selection.x; x < selection.x + selection.width; x += 1) {
-        eraseCell(layer, x, y);
-      }
-    }
-  }
-
-  function getSelectionText(selection: RectSelection) {
+  function getSelectionText(highlight: HighlightRect) {
     const lines: string[] = [];
 
-    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
+    for (let y = 0; y < highlight.height; y += 1) {
       const chars: string[] = [];
-      let x = selection.x;
+      let x = 0;
 
-      while (x < selection.x + selection.width) {
-        const cell = compositedGrid.value[y][x];
-        const char = cell.char === NBSP ? " " : cell.char;
-        const width = char === " " ? 1 : getCharWidth(char);
+      while (x < highlight.width) {
+        const cell = highlight.contents[y]?.[x] ?? createEmptyCell();
+
+        if (cell.kind === "wide-tail") {
+          x += 1;
+          continue;
+        }
+
+        const char = cell.kind === "char" ? (cell.char === NBSP ? " " : cell.char) : " ";
+        const width = cell.kind === "char" ? cell.width : 1;
 
         chars.push(char);
         x += width;
@@ -1065,7 +1252,7 @@ export function useAaMaker() {
     return lines.join("\n");
   }
 
-  function pasteTextAtSelection(layer: Layer, selection: RectSelection, text: string, options: PasteTextOptions = {}) {
+  function createPasteHighlight(selection: RectSelection, text: string) {
     const lines = getClipboardLines(text);
 
     if (lines.length === 0) {
@@ -1074,57 +1261,81 @@ export function useAaMaker() {
 
     let pastedWidth = 0;
     let pastedHeight = 0;
-    let hasPlacedCell = false;
+    const rows: Cell[][] = [];
 
     for (let rowIndex = 0; rowIndex < lines.length; rowIndex += 1) {
-      const y = selection.y + rowIndex;
-
-      if (y >= GRID_ROWS) {
-        break;
-      }
-
-      let x = selection.x;
+      let x = 0;
+      const rowCells: Cell[] = [];
 
       for (const grapheme of getGraphemes(lines[rowIndex].replace(/\t/g, "    "))) {
         const isBlank = isClipboardBlankGrapheme(grapheme);
         const char = grapheme === " " ? NBSP : grapheme;
         const width = isBlank ? getCharWidth(grapheme) : getCharWidth(char);
 
-        if (x + width > GRID_COLUMNS) {
-          break;
+        while (rowCells.length < x) {
+          rowCells.push(createEmptyCell());
         }
 
-        if (!options.transparentSpaces || !isBlank) {
-          placeChar(layer, x, y, char, toolState.selectedFGC, toolState.selectedBGC, width);
-          hasPlacedCell = true;
+        if (isBlank) {
+          rowCells.push(createEmptyCell());
+
+          if (width === 2) {
+            rowCells.push(createEmptyCell());
+          }
+        } else {
+          rowCells.push({
+            kind: "char",
+            char,
+            width,
+            fgc: toolState.selectedFGC,
+            bgc: toolState.selectedBGC,
+          });
+
+          if (width === 2) {
+            rowCells.push({
+              kind: "wide-tail",
+              headX: x,
+            });
+          }
         }
 
         x += width;
       }
 
-      pastedWidth = Math.max(pastedWidth, x - selection.x);
+      pastedWidth = Math.max(pastedWidth, rowCells.length);
       pastedHeight = rowIndex + 1;
+      rows.push(rowCells);
     }
 
-    if (pastedWidth <= 0 || pastedHeight <= 0 || (options.transparentSpaces && !hasPlacedCell)) {
+    if (pastedWidth <= 0 || pastedHeight <= 0) {
       return;
     }
 
-    toolState.selection = {
+    const contents = createEmptyCellGrid(pastedWidth, pastedHeight);
+
+    rows.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        contents[y][x] = cloneCell(cell);
+      });
+    });
+
+    toolState.highlight = {
       kind: "rect",
       x: selection.x,
       y: selection.y,
       width: pastedWidth,
       height: pastedHeight,
+      contents,
+      origin: null,
     };
   }
 
-  function getRectSelection(): RectSelection | null {
-    return toolState.selection.kind === "rect" ? toolState.selection : null;
+  function getRectHighlight(): HighlightRect | null {
+    return toolState.highlight.kind === "rect" ? toolState.highlight : null;
   }
 
   function getPasteOriginSelection(): RectSelection {
-    const selection = getRectSelection();
+    const selection = getRectHighlight();
 
     if (selection) {
       return selection;
@@ -1155,22 +1366,30 @@ export function useAaMaker() {
     if (toolState.selectedFGC === previousColor) {
       toolState.selectedFGC = nextColor;
     }
+
+    const highlight = getRectHighlight();
+
+    if (highlight) {
+      forEachCharCellInHighlight(highlight, (cell) => {
+        if (cell.fgc === previousColor) {
+          cell.fgc = nextColor;
+        }
+      });
+    }
   }
 
-  function forEachCharCellInSelection(layer: Layer, selection: RectSelection, callback: (cell: Extract<Cell, { kind: "char" }>) => void) {
-    for (let y = selection.y; y < selection.y + selection.height; y += 1) {
-      for (let x = selection.x; x < selection.x + selection.width; x += 1) {
-        const cell = getCell(layer, x, y);
-
-        if (cell?.kind === "char") {
+  function forEachCharCellInHighlight(highlight: HighlightRect, callback: (cell: Extract<Cell, { kind: "char" }>) => void) {
+    for (const row of highlight.contents) {
+      for (const cell of row) {
+        if (cell.kind === "char") {
           callback(cell);
         }
       }
     }
   }
 
-  function canPlaceCharOnEmptyCells(layer: Layer, selection: RectSelection, x: number, y: number, width: 1 | 2) {
-    if (x + width > selection.x + selection.width) {
+  function canPlaceCharOnEmptyCells(layer: Layer, x: number, y: number, width: 1 | 2) {
+    if (x + width > layer.cells[y].length) {
       return false;
     }
 
@@ -1229,18 +1448,21 @@ export function useAaMaker() {
 
   function getCellText(x: number, y: number) {
     const compositedCell = compositedGrid.value[y][x];
+    if (compositedCell.kind === "wide-tail") {
+      return "\u00a0";
+    }
+
     return compositedCell.char === " " ? "\u00a0" : compositedCell.char;
   }
 
   function getCellClass(x: number, y: number) {
-    const activeLayer = getEditableActiveLayer();
-    const cell = activeLayer ? getCell(activeLayer, x, y) : null;
+    const compositedCell = compositedGrid.value[y][x];
 
-    if (cell?.kind === "char" && cell.width === 2) {
+    if (compositedCell.kind === "char" && compositedCell.width === 2) {
       return ["is-wide-head"];
     }
 
-    if (cell?.kind === "wide-tail") {
+    if (compositedCell.kind === "wide-tail") {
       return ["is-wide-tail"];
     }
 
@@ -1250,13 +1472,6 @@ export function useAaMaker() {
   function getCellStyle(x: number, y: number) {
     const compositedCell = compositedGrid.value[y][x];
     const style = { backgroundColor: `#${compositedCell.bgc}` } as Record<string, string>;
-    const activeLayer = getEditableActiveLayer();
-    const activeCell = activeLayer ? getCell(activeLayer, x, y) : null;
-
-    if (activeLayer && activeCell?.kind === "wide-tail") {
-      const head = getHeadCell(activeLayer, x, y);
-      style.backgroundColor = `#${head?.bgc ?? documentModel.canvasBGC}`;
-    }
 
     if (compositedCell.fgc) {
       style.color = `#${compositedCell.fgc}`;
@@ -1298,45 +1513,381 @@ export function useAaMaker() {
     return previewCells;
   }
 
-  function placeStamp(layer: Layer, originX: number, originY: number) {
+  function getHighlightPreviewCells(highlight: HighlightRect): StampPreviewCell[] {
+    const previewCells: StampPreviewCell[] = [];
+
+    highlight.contents.forEach((row, rowIndex) => {
+      row.forEach((cell, columnIndex) => {
+        if (cell.kind !== "char") {
+          return;
+        }
+
+        previewCells.push({
+          x: highlight.x + columnIndex,
+          y: highlight.y + rowIndex,
+          text: cell.char === " " ? "\u00a0" : cell.char,
+          style: {
+            color: `#${cell.fgc}`,
+            backgroundColor: `#${cell.bgc ?? documentModel.canvasBGC}`,
+          },
+          className: cell.width === 2 ? ["is-wide-head"] : [],
+        });
+      });
+    });
+
+    return previewCells;
+  }
+
+  function placeStamp(originX: number, originY: number) {
     const stamp = activeStamp.value;
 
     if (!stamp) {
       return;
     }
 
-    const clippedWidth = clamp(stamp.width, 0, GRID_COLUMNS - originX);
-    const clippedHeight = clamp(stamp.height, 0, GRID_ROWS - originY);
-
-    if (clippedWidth <= 0 || clippedHeight <= 0) {
-      return;
-    }
+    const contents = createEmptyCellGrid(stamp.width, stamp.height);
 
     stamp.cells.forEach((row, rowIndex) => {
-      const y = originY + rowIndex;
-
-      if (y < 0 || y >= GRID_ROWS) {
-        return;
-      }
-
       row.forEach((cell, columnIndex) => {
-        const x = originX + columnIndex;
-
-        if (!cell || x < 0 || x >= GRID_COLUMNS) {
+        if (!cell) {
           return;
         }
 
-        placeChar(layer, x, y, cell.char, resolveStampFGC(cell.fgc), cell.bgc, cell.width);
+        contents[rowIndex][columnIndex] = {
+          kind: "char",
+          char: cell.char,
+          width: cell.width,
+          fgc: resolveStampFGC(cell.fgc),
+          bgc: cell.bgc,
+        };
+
+        if (cell.width === 2 && columnIndex + 1 < stamp.width) {
+          contents[rowIndex][columnIndex + 1] = {
+            kind: "wide-tail",
+            headX: columnIndex,
+          };
+        }
       });
     });
 
-    toolState.selection = {
+    toolState.highlight = {
       kind: "rect",
       x: originX,
       y: originY,
-      width: clippedWidth,
-      height: clippedHeight,
+      width: stamp.width,
+      height: stamp.height,
+      contents,
+      origin: null,
     };
+  }
+
+  function openTextEditor(x: number, y: number) {
+    closeSelectionContextMenu();
+    textDraft.value = {
+      x: clamp(x, 0, GRID_COLUMNS - 1),
+      y: clamp(y, 0, GRID_ROWS - 1),
+      value: "",
+    };
+  }
+
+  function updateTextEditorValue(value: string) {
+    if (!textDraft.value) {
+      return;
+    }
+
+    textDraft.value.value = value;
+  }
+
+  function confirmTextEditor() {
+    const draft = textDraft.value;
+
+    if (!draft) {
+      return;
+    }
+
+    if (!getEditableActiveLayer()) {
+      closeTextEditor();
+      return;
+    }
+
+    const placement = getTextPlacement(draft.x, draft.y, draft.value);
+
+    if (placement.width <= 0 || placement.height <= 0) {
+      closeTextEditor();
+      return;
+    }
+
+    toolState.highlight = {
+      kind: "rect",
+      x: placement.x,
+      y: placement.y,
+      width: placement.width,
+      height: placement.height,
+      contents: placement.contents,
+      origin: null,
+    };
+    closeTextEditor();
+  }
+
+  function closeTextEditor() {
+    textDraft.value = null;
+  }
+
+  function getTextEditorWidthCells(value: string, x: number) {
+    const lines = getClipboardLines(value.replace(/\t/g, "    "));
+    const maxLineWidth = Math.max(1, ...lines.map((line) => getTextLineWidth(line)));
+    const remainingWidth = GRID_COLUMNS - clamp(x, 0, GRID_COLUMNS - 1);
+    return clamp(Math.max(6, maxLineWidth + 1), 1, Math.max(1, remainingWidth));
+  }
+
+  function getTextEditorHeightCells(value: string, y: number) {
+    const lineCount = Math.max(1, countEditorLines(value));
+    const remainingHeight = GRID_ROWS - clamp(y, 0, GRID_ROWS - 1);
+    return clamp(Math.max(1, lineCount), 1, Math.max(1, remainingHeight));
+  }
+
+  function getTextLineWidth(line: string) {
+    let width = 0;
+
+    for (const grapheme of getGraphemes(line)) {
+      width += grapheme === " " ? 1 : getCharWidth(grapheme);
+    }
+
+    return width;
+  }
+
+  function getTextPlacement(originX: number, originY: number, value: string) {
+    const lines = getClipboardLines(value);
+    const rows: Cell[][] = [];
+    let maxWidth = 0;
+
+    for (let rowIndex = 0; rowIndex < lines.length; rowIndex += 1) {
+      let x = 0;
+      const rowCells: Cell[] = [];
+
+      for (const grapheme of getGraphemes(lines[rowIndex].replace(/\t/g, "    "))) {
+        const char = grapheme === " " ? NBSP : grapheme;
+        const width = getCharWidth(char);
+
+        rowCells[x] = {
+          kind: "char",
+          char,
+          width,
+          fgc: toolState.selectedFGC,
+          bgc: toolState.selectedBGC,
+        };
+
+        if (width === 2) {
+          rowCells[x + 1] = {
+            kind: "wide-tail",
+            headX: x,
+          };
+        }
+
+        x += width;
+      }
+
+      maxWidth = Math.max(maxWidth, rowCells.length);
+      rows.push(rowCells);
+    }
+
+    if (maxWidth <= 0 || rows.length === 0) {
+      return {
+        x: originX,
+        y: originY,
+        width: 0,
+        height: 0,
+        contents: createEmptyCellGrid(0, 0),
+      };
+    }
+
+    const contents = createEmptyCellGrid(maxWidth, rows.length);
+
+    rows.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        if (cell) {
+          contents[y][x] = cloneCell(cell);
+        }
+      });
+    });
+
+    return {
+      x: originX,
+      y: originY,
+      width: maxWidth,
+      height: rows.length,
+      contents,
+    };
+  }
+
+  function expandSelectionForWideCells(layer: Layer, selection: RectSelection): RectSelection {
+    let left = selection.x;
+    let top = selection.y;
+    let right = selection.x + selection.width - 1;
+    let bottom = selection.y + selection.height - 1;
+    let didExpand = true;
+
+    while (didExpand) {
+      didExpand = false;
+
+      for (let y = top; y <= bottom; y += 1) {
+        for (let x = left; x <= right; x += 1) {
+          const cell = getCell(layer, x, y);
+
+          if (cell?.kind === "wide-tail" && cell.headX < left) {
+            left = cell.headX;
+            didExpand = true;
+          }
+
+          if (cell?.kind === "char" && cell.width === 2 && x + 1 > right) {
+            right = x + 1;
+            didExpand = true;
+          }
+        }
+      }
+    }
+
+    left = clamp(left, 0, GRID_COLUMNS - 1);
+    top = clamp(top, 0, GRID_ROWS - 1);
+    right = clamp(right, left, GRID_COLUMNS - 1);
+    bottom = clamp(bottom, top, GRID_ROWS - 1);
+
+    return {
+      kind: "rect",
+      x: left,
+      y: top,
+      width: right - left + 1,
+      height: bottom - top + 1,
+    };
+  }
+
+  function copyLayerCells(layer: Layer, selection: RectSelection) {
+    const contents = createEmptyCellGrid(selection.width, selection.height);
+
+    for (let y = 0; y < selection.height; y += 1) {
+      for (let x = 0; x < selection.width; x += 1) {
+        const cell = getCell(layer, selection.x + x, selection.y + y);
+
+        if (!cell) {
+          continue;
+        }
+
+        contents[y][x] = cloneCellWithRelativeHead(cell, selection.x);
+      }
+    }
+
+    return contents;
+  }
+
+  function createHighlightLayer(width: number, height: number, contents?: CellGrid): Layer {
+    return {
+      id: "highlight",
+      name: "Highlight",
+      visible: true,
+      locked: false,
+      cells: contents ? cloneCellGrid(contents) : createEmptyCellGrid(width, height),
+    };
+  }
+
+  function createEmptyCellGrid(width: number, height: number): CellGrid {
+    return Array.from({ length: height }, () => Array.from({ length: width }, createEmptyCell));
+  }
+
+  function replaceHighlightContents(contents: CellGrid) {
+    const highlight = getRectHighlight();
+
+    if (!highlight) {
+      return;
+    }
+
+    toolState.highlight = {
+      ...highlight,
+      contents: cloneCellGrid(contents),
+    };
+  }
+
+  function writeHighlightToLayer(layer: Layer, highlight: HighlightRect, transparent: boolean) {
+    if (!transparent) {
+      clearLayerRect(layer, highlight.x, highlight.y, highlight.width, highlight.height);
+    }
+
+    for (let y = 0; y < highlight.height; y += 1) {
+      for (let x = 0; x < highlight.width; x += 1) {
+        const targetX = highlight.x + x;
+        const targetY = highlight.y + y;
+        const cell = highlight.contents[y]?.[x];
+
+        if (!cell || targetX < 0 || targetX >= GRID_COLUMNS || targetY < 0 || targetY >= GRID_ROWS) {
+          continue;
+        }
+
+        if (cell.kind === "empty") {
+          if (!transparent) {
+            eraseCell(layer, targetX, targetY);
+          }
+          continue;
+        }
+
+        if (cell.kind === "char") {
+          placeChar(layer, targetX, targetY, cell.char, cell.fgc, cell.bgc, cell.width);
+        }
+      }
+    }
+  }
+
+  function writeCellGridToLayer(layer: Layer, originX: number, originY: number, contents: CellGrid) {
+    clearLayerRect(layer, originX, originY, contents[0]?.length ?? 0, contents.length);
+
+    contents.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        const targetX = originX + x;
+        const targetY = originY + y;
+
+        if (cell.kind === "char" && targetX >= 0 && targetX < GRID_COLUMNS && targetY >= 0 && targetY < GRID_ROWS) {
+          placeChar(layer, targetX, targetY, cell.char, cell.fgc, cell.bgc, cell.width);
+        }
+      });
+    });
+  }
+
+  function clearLayerRect(layer: Layer, originX: number, originY: number, width: number, height: number) {
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const targetX = originX + x;
+        const targetY = originY + y;
+
+        if (targetX >= 0 && targetX < GRID_COLUMNS && targetY >= 0 && targetY < GRID_ROWS) {
+          eraseCell(layer, targetX, targetY);
+        }
+      }
+    }
+  }
+
+  function cloneCellGrid(contents: CellGrid): CellGrid {
+    return contents.map((row) => row.map(cloneCell));
+  }
+
+  function cloneCell(cell: Cell): Cell {
+    if (cell.kind === "char") {
+      return { ...cell };
+    }
+
+    if (cell.kind === "wide-tail") {
+      return { ...cell };
+    }
+
+    return createEmptyCell();
+  }
+
+  function cloneCellWithRelativeHead(cell: Cell, originX: number): Cell {
+    if (cell.kind === "wide-tail") {
+      return {
+        kind: "wide-tail",
+        headX: cell.headX - originX,
+      };
+    }
+
+    return cloneCell(cell);
   }
 
   function resolveStampFGC(fgc: string | null) {
@@ -1399,6 +1950,9 @@ export function useAaMaker() {
     selectionStyle,
     selectionContextMenu,
     selectionContextMenuStyle,
+    highlightCells,
+    textDraft,
+    textEditorStyle,
     stampPreviewCells,
     stampSets,
     selectedColorPickerMode,
@@ -1412,7 +1966,10 @@ export function useAaMaker() {
     handleCellDown,
     handleCellEnter,
     handleCellUp,
+    handleGridMeasureDown,
     handleGridWheel,
+    handleHighlightContext,
+    handleHighlightMove,
     handleKeyboardInput,
     invertCanvasBackground,
     assignHistoryChar,
@@ -1427,8 +1984,10 @@ export function useAaMaker() {
     selectPalette,
     selectPaletteChar,
     closeSelectedColorPicker,
+    closeTextEditor,
     openSelectionBGCColorPicker,
     openSelectionFGCColorPicker,
+    confirmTextEditor,
     selectStamp,
     selectStampSet,
     selectSelectedColor,
@@ -1436,8 +1995,10 @@ export function useAaMaker() {
     selectTool,
     openSelectedBGCColorPicker,
     openSelectedFGCColorPicker,
+    openTextEditor,
     loadDocument,
     stopDrawing,
+    updateTextEditorValue,
     toggleLayerLocked,
     toggleLayerVisible,
     updateUnicodeQuery,
@@ -1453,8 +2014,8 @@ function cloneDocument(documentValue: AaDocument): AaDocument {
   return JSON.parse(JSON.stringify(documentValue)) as AaDocument;
 }
 
-function cloneSelection(selection: Selection): Selection {
-  return JSON.parse(JSON.stringify(selection)) as Selection;
+function cloneHighlight(highlight: Highlight): Highlight {
+  return JSON.parse(JSON.stringify(highlight)) as Highlight;
 }
 
 function getContextMenuPosition(x: number, y: number) {
@@ -1480,7 +2041,7 @@ function createExportContent(format: ExportFormat, grid: ReturnType<typeof compo
 }
 
 function createPlainTextExport(grid: ReturnType<typeof composeDocument>) {
-  return grid.map((row) => trimExportRow(row).map((cell) => cell.char).join("")).join("\n");
+  return grid.map((row) => trimExportRow(row).filter(isExportContentCell).map((cell) => cell.char).join("")).join("\n");
 }
 
 function createAnsiExport(grid: ReturnType<typeof composeDocument>) {
@@ -1490,6 +2051,7 @@ function createAnsiExport(grid: ReturnType<typeof composeDocument>) {
       let currentBGC: string | null = null;
 
       const line = trimExportRow(row)
+        .filter(isExportContentCell)
         .map((cell) => {
           let prefix = "";
           const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
@@ -1518,6 +2080,7 @@ function createMdsExport(grid: ReturnType<typeof composeDocument>) {
     let hasActiveBGC = false;
 
     const line = trimExportRow(row)
+      .filter(isExportContentCell)
       .map((cell) => {
         let prefix = "";
         const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
@@ -1569,6 +2132,10 @@ function trimExportRow<T extends { char: string }>(row: T[]) {
   }
 
   return row.slice(0, end);
+}
+
+function isExportContentCell<T extends { kind?: string }>(cell: T) {
+  return cell.kind !== "wide-tail";
 }
 
 function createExportFilename(name: string, format: ExportFormat) {
@@ -1720,23 +2287,17 @@ function isTextEditingTarget(target: EventTarget | null) {
   return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
-function isTransparentPasteShortcut(event: KeyboardEvent) {
-  if (!event.ctrlKey) {
-    return false;
-  }
-
-  return isMacPlatform() ? event.metaKey : event.altKey;
-}
-
-function isMacPlatform() {
-  return /mac/i.test(navigator.platform);
-}
-
 function getClipboardLines(text: string) {
   const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const withoutTrailingLineBreak = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
 
   return withoutTrailingLineBreak === "" ? [] : withoutTrailingLineBreak.split("\n");
+}
+
+function countEditorLines(text: string) {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  return normalized === "" ? 1 : normalized.split("\n").length;
 }
 
 function getGraphemes(value: string) {
