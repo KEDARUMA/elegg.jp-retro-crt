@@ -43,6 +43,8 @@ const props = defineProps<{
   activePaletteId: string;
   selectedChar: string | null;
   selectedCode: number | null;
+  canvasColor: string;
+  foregroundDefaultColor: string;
 }>();
 
 const emit = defineEmits<{
@@ -92,6 +94,10 @@ const selectedCharacterLabel = computed(() => {
 
   return `${props.selectedChar}(${getCodeLabel(props.selectedCode)})`;
 });
+const paletteDisplayStyle = computed(() => ({
+  "--aa-palette-canvas-color": `#${props.canvasColor}`,
+  "--aa-palette-fgdc": `#${props.foregroundDefaultColor}`,
+}));
 
 function getPaletteCode(palette: NormalPalette, char: string, index: number) {
   if (typeof palette.startCode === "number") {
@@ -201,7 +207,7 @@ function parseUnicodeQuery(query: string) {
 </script>
 
 <template>
-  <section class="panel-section">
+  <section class="panel-section" :style="paletteDisplayStyle">
     <h2>Character Palette</h2>
     <label class="palette-select-label">
       <select

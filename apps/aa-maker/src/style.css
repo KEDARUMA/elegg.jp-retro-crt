@@ -488,6 +488,7 @@ button {
 
 .palette-code {
   max-width: 96px;
+  color: var(--aa-palette-fgdc, #bbbbbb);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -498,12 +499,12 @@ button {
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 0;
-  background: #ffffff;
+  background: var(--aa-palette-canvas-color, #ffffff);
   padding: 8px;
 }
 
 .history-palette {
-  background: #ffffff;
+  background: var(--aa-palette-canvas-color, #ffffff);
   padding: 8px;
 }
 
@@ -527,15 +528,16 @@ button {
   padding: 0;
   border: 0;
   outline: 1px solid transparent;
-  background: #f8f8f8;
-  color: #111111;
+  background: var(--aa-palette-canvas-color, #f8f8f8);
+  color: var(--aa-palette-fgdc, #111111);
   overflow: visible;
   user-select: none;
 }
 
 .palette-button:disabled {
-  background: #303030;
+  background: var(--aa-palette-canvas-color, #303030);
   cursor: default;
+  opacity: 0.35;
 }
 
 .history-palette .palette-button {
@@ -559,8 +561,8 @@ button {
 .palette-button.is-selected {
   position: relative;
   z-index: 1;
-  outline: 2px solid #111111;
-  background: #d8d8d8;
+  outline: 2px solid var(--aa-palette-fgdc, #111111);
+  background: var(--aa-palette-canvas-color, #d8d8d8);
 }
 
 .keyboard-palette,
@@ -572,8 +574,8 @@ button {
   width: 100%;
   min-height: 24px;
   border: 0;
-  background: #303030;
-  color: #eeeeee;
+  background: var(--aa-palette-canvas-color, #303030);
+  color: var(--aa-palette-fgdc, #eeeeee);
   font: inherit;
 }
 
@@ -581,8 +583,8 @@ button {
   position: relative;
   height: 260px;
   margin-top: 0;
-  background: #ffffff;
-  color: #111111;
+  background: var(--aa-palette-canvas-color, #ffffff);
+  color: var(--aa-palette-fgdc, #111111);
   overflow: auto;
 }
 
@@ -630,14 +632,14 @@ button {
   width: 100%;
   padding: 6px;
   border: 1px solid transparent;
-  background: #3a3a3a;
-  color: #eeeeee;
+  background: var(--aa-palette-canvas-color, #3a3a3a);
+  color: var(--aa-palette-fgdc, #eeeeee);
   text-align: left;
 }
 
 .stamp-list-item.is-selected {
-  border-color: #eeeeee;
-  background: #5a5a5a;
+  border-color: var(--aa-palette-fgdc, #eeeeee);
+  background: var(--aa-palette-canvas-color, #5a5a5a);
 }
 
 .stamp-list-name {
@@ -651,11 +653,20 @@ button {
   min-height: 24px;
   margin: 0;
   overflow: hidden;
-  color: #eeeeee;
   font-family: var(--aa-font-family);
   font-size: 12px;
   line-height: 14px;
-  white-space: pre;
+}
+
+.stamp-list-preview-row {
+  height: 14px;
+  white-space: nowrap;
+}
+
+.stamp-list-preview-cell {
+  display: inline-block;
+  min-width: 7px;
+  min-height: 14px;
 }
 
 .layer-item.is-active {

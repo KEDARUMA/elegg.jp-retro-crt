@@ -9,7 +9,7 @@ import trashIcon from "../assets/icons/trash.svg?raw";
 import CharacterPalette from "./CharacterPalette.vue";
 import ConfirmModal from "./ConfirmModal.vue";
 import InfoPanel from "./InfoPanel.vue";
-import type { Layer, Stamp, Tool } from "../model/types";
+import type { Layer, Stamp, StampCell, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -69,6 +69,8 @@ const props = defineProps<{
   activePaletteId: string;
   selectedChar: string | null;
   selectedCode: number | null;
+  canvasColor: string;
+  foregroundDefaultColor: string;
   info: InfoState;
   layers: Layer[];
   activeLayerId: string;
@@ -101,6 +103,10 @@ const editingLayerName = ref("");
 const isDeleteConfirmOpen = ref(false);
 const activeStampSetStamps = computed(() => props.stampSets.find((stampSet) => stampSet.id === props.activeStampSetId)?.stamps ?? []);
 const activeStampSetItemCount = computed(() => activeStampSetStamps.value.length);
+const paletteDisplayStyle = computed(() => ({
+  "--aa-palette-canvas-color": `#${props.canvasColor}`,
+  "--aa-palette-fgdc": `#${props.foregroundDefaultColor}`,
+}));
 
 function startLayerDrag(event: DragEvent, layerId: string) {
   event.dataTransfer?.setData("text/plain", layerId);
@@ -158,8 +164,15 @@ function handleStampSetChange(event: Event) {
   }
 }
 
-function getStampRows(stamp: Stamp) {
-  return stamp.cells.map((row) => row.map((cell) => cell?.char ?? " ").join(""));
+function getStampCellText(cell: StampCell | null) {
+  return cell?.char === " " || !cell ? "\u00a0" : cell.char;
+}
+
+function getStampCellStyle(cell: StampCell | null) {
+  return {
+    color: `#${cell?.fgc ?? props.foregroundDefaultColor}`,
+    backgroundColor: `#${cell?.bgc ?? props.canvasColor}`,
+  };
 }
 </script>
 
@@ -173,6 +186,8 @@ function getStampRows(stamp: Stamp) {
       :active-palette-id="activePaletteId"
       :selected-char="selectedChar"
       :selected-code="selectedCode"
+      :canvas-color="canvasColor"
+      :foreground-default-color="foregroundDefaultColor"
       @select-palette="(paletteId) => $emit('selectPalette', paletteId)"
       @select-char="(char, width, fillEmptyOnly) => $emit('selectChar', char, width, fillEmptyOnly)"
       @keyboard-input="(value) => $emit('keyboardInput', value)"
@@ -180,7 +195,7 @@ function getStampRows(stamp: Stamp) {
       @update-unicode-scroll-offset="(scrollOffset) => $emit('updateUnicodeScrollOffset', scrollOffset)"
       @assign-history-char="(index) => $emit('assignHistoryChar', index)"
     />
-    <section v-else class="panel-section panel-section--grow">
+    <section v-else class="panel-section panel-section--grow" :style="paletteDisplayStyle">
       <h2>Stamp</h2>
       <label class="palette-select-label">
         <select class="palette-select" :value="activeStampSetId" @change="handleStampSetChange">
@@ -200,7 +215,16 @@ function getStampRows(stamp: Stamp) {
           @click="$emit('selectStamp', stamp.id)"
         >
           <span class="stamp-list-name">{{ stamp.name }}</span>
-          <pre class="stamp-list-preview">{{ getStampRows(stamp).join("\n") }}</pre>
+          <div class="stamp-list-preview" aria-hidden="true">
+            <div v-for="(row, rowIndex) in stamp.cells" :key="`${stamp.id}-row-${rowIndex}`" class="stamp-list-preview-row">
+              <span
+                v-for="(cell, cellIndex) in row"
+                :key="`${stamp.id}-${rowIndex}-${cellIndex}`"
+                class="stamp-list-preview-cell"
+                :style="getStampCellStyle(cell)"
+              >{{ getStampCellText(cell) }}</span>
+            </div>
+          </div>
         </button>
       </div>
     </section>

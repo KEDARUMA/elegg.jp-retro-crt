@@ -70,6 +70,8 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :active-palette-id="aaMaker.activePaletteId.value"
       :selected-char="aaMaker.toolState.selectedChar"
       :selected-code="aaMaker.selectedPaletteCode.value"
+      :canvas-color="aaMaker.documentModel.canvasBGC"
+      :foreground-default-color="aaMaker.foregroundDefaultColor.value"
       :info="aaMaker.info.value"
       :layers="aaMaker.layerList.value"
       :active-layer-id="aaMaker.documentModel.activeLayerId"

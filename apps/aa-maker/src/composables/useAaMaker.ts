@@ -209,9 +209,10 @@ export function useAaMaker() {
   const activeStampSet = computed(() => stampSets.find((stampSet) => stampSet.id === activeStampSetId.value) ?? stampSets[0] ?? null);
   const activeStamp = computed(() => activeStampSet.value?.stamps.find((stamp) => stamp.id === activeStampId.value) ?? activeStampSet.value?.stamps[0] ?? null);
   const zoomLabel = computed(() => `Zoom: ${Math.round(gridZoom.value * 100)}%`);
+  const foregroundDefaultColor = computed(() => getForegroundDefaultColor());
   const colorPickerInitialColor = computed(() => {
     if (colorPickerTarget.value === "selection") {
-      return selectedColorPickerMode.value === "fgc" ? getReadableCanvasColor() : documentModel.canvasBGC;
+      return selectedColorPickerMode.value === "fgc" ? foregroundDefaultColor.value : documentModel.canvasBGC;
     }
 
     return selectedColorPickerMode.value === "fgc" ? toolState.selectedFGC : (toolState.selectedBGC ?? documentModel.canvasBGC);
@@ -312,14 +313,14 @@ export function useAaMaker() {
   onMounted(() => {
     document.addEventListener("pointerup", stopDrawing);
     document.addEventListener("pointerleave", stopDrawing);
-    document.addEventListener("keydown", handleDocumentKeyDown);
+    document.addEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.addEventListener("pointerdown", closeSelectionContextMenu);
   });
 
   onUnmounted(() => {
     document.removeEventListener("pointerup", stopDrawing);
     document.removeEventListener("pointerleave", stopDrawing);
-    document.removeEventListener("keydown", handleDocumentKeyDown);
+    document.removeEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.removeEventListener("pointerdown", closeSelectionContextMenu);
   });
 
@@ -416,8 +417,11 @@ export function useAaMaker() {
   }
 
   function invertCanvasBackground() {
+    const previousForegroundDefaultColor = getForegroundDefaultColor();
+
     recordDocumentHistory();
-    documentModel.canvasBGC = documentModel.canvasBGC === "ffffff" ? "000000" : "ffffff";
+    documentModel.canvasBGC = invertHexColor(documentModel.canvasBGC);
+    updateForegroundDefaultColor(previousForegroundDefaultColor, getForegroundDefaultColor());
   }
 
   function selectPaletteChar(char: string, width: 1 | 2, fillEmptyOnly = false) {
@@ -576,8 +580,9 @@ export function useAaMaker() {
 
     const key = event.key.toLowerCase();
 
-    if (event.ctrlKey && key === "a") {
+    if ((event.ctrlKey || event.metaKey) && key === "a") {
       event.preventDefault();
+      event.stopPropagation();
       selectAllGrid();
       return;
     }
@@ -599,33 +604,25 @@ export function useAaMaker() {
       return;
     }
 
-    if (toolState.selection.kind !== "rect") {
-      return;
-    }
-
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && toolState.selection.kind === "rect") {
       event.preventDefault();
       clearSelection();
       return;
     }
 
-    if (event.key === "Delete") {
+    if (event.key === "Delete" && toolState.selection.kind === "rect") {
       event.preventDefault();
       deleteSelection();
       return;
     }
 
-    if (!event.ctrlKey && !event.metaKey) {
-      return;
-    }
-
-    if (key === "c") {
+    if ((event.ctrlKey || event.metaKey) && key === "c" && toolState.selection.kind === "rect") {
       event.preventDefault();
       void copySelectionToClipboard();
       return;
     }
 
-    if (key === "v") {
+    if ((event.ctrlKey || event.metaKey) && key === "v") {
       event.preventDefault();
       void pasteSelectionFromClipboard({ transparentSpaces: isTransparentPasteShortcut(event) });
     }
@@ -916,10 +913,10 @@ export function useAaMaker() {
   }
 
   async function pasteSelectionFromClipboard(options: PasteTextOptions = {}) {
-    const selection = getRectSelection();
+    const selection = getPasteOriginSelection();
     const activeLayer = getEditableActiveLayer();
 
-    if (!selection || !activeLayer) {
+    if (!activeLayer) {
       return;
     }
 
@@ -932,6 +929,7 @@ export function useAaMaker() {
       const text = await navigator.clipboard.readText();
       recordDocumentHistory();
       pasteTextAtSelection(activeLayer, selection, text, options);
+      toolState.activeTool = "select";
     } catch {
       window.alert("Paste failed: could not read from clipboard.");
     }
@@ -995,7 +993,7 @@ export function useAaMaker() {
 
     recordDocumentHistory();
     forEachCharCellInSelection(activeLayer, selection, (cell) => {
-      cell.fgc = invertHexColor(documentModel.canvasBGC);
+      cell.fgc = getForegroundDefaultColor();
       cell.bgc = null;
     });
   }
@@ -1123,6 +1121,40 @@ export function useAaMaker() {
 
   function getRectSelection(): RectSelection | null {
     return toolState.selection.kind === "rect" ? toolState.selection : null;
+  }
+
+  function getPasteOriginSelection(): RectSelection {
+    const selection = getRectSelection();
+
+    if (selection) {
+      return selection;
+    }
+
+    const position = cursorPosition.value ?? { x: 0, y: 0 };
+
+    return {
+      kind: "rect",
+      x: clamp(position.x, 0, GRID_COLUMNS - 1),
+      y: clamp(position.y, 0, GRID_ROWS - 1),
+      width: 1,
+      height: 1,
+    };
+  }
+
+  function updateForegroundDefaultColor(previousColor: Color, nextColor: Color) {
+    for (const layer of documentModel.layers) {
+      for (const row of layer.cells) {
+        for (const cell of row) {
+          if (cell.kind === "char" && cell.fgc === previousColor) {
+            cell.fgc = nextColor;
+          }
+        }
+      }
+    }
+
+    if (toolState.selectedFGC === previousColor) {
+      toolState.selectedFGC = nextColor;
+    }
   }
 
   function forEachCharCellInSelection(layer: Layer, selection: RectSelection, callback: (cell: Extract<Cell, { kind: "char" }>) => void) {
@@ -1256,7 +1288,7 @@ export function useAaMaker() {
           text: cell.char === " " ? "\u00a0" : cell.char,
           style: {
             color: `#${resolveStampFGC(cell.fgc)}`,
-            backgroundColor: cell.bgc ? `#${cell.bgc}` : "transparent",
+            backgroundColor: `#${cell.bgc ?? documentModel.canvasBGC}`,
           },
           className: cell.width === 2 ? ["is-wide-head"] : [],
         });
@@ -1308,11 +1340,11 @@ export function useAaMaker() {
   }
 
   function resolveStampFGC(fgc: string | null) {
-    return fgc ?? (isDarkColor(documentModel.canvasBGC) ? "ffffff" : "000000");
+    return fgc ?? getForegroundDefaultColor();
   }
 
-  function getReadableCanvasColor() {
-    return isDarkColor(documentModel.canvasBGC) ? "ffffff" : "000000";
+  function getForegroundDefaultColor() {
+    return invertHexColor(documentModel.canvasBGC);
   }
 
   function getEditableActiveLayer(): Layer | null {
@@ -1355,6 +1387,7 @@ export function useAaMaker() {
     activeStampSetId,
     colorPickerAllowsNone,
     colorPickerInitialColor,
+    foregroundDefaultColor,
     colorSchemes,
     documentModel,
     gridCells,
