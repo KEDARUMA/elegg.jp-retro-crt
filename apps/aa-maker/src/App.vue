@@ -1,16 +1,28 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import EditorGrid from "./components/EditorGrid.vue";
+import SaveDocumentModal from "./components/SaveDocumentModal.vue";
 import SidePanel from "./components/SidePanel.vue";
 import Toolbox from "./components/Toolbox.vue";
 import TopMenu from "./components/TopMenu.vue";
 import { useAaMaker } from "./composables/useAaMaker";
 
 const aaMaker = useAaMaker();
+const isSaveDocumentModalOpen = ref(false);
+
+function openSaveDocumentModal() {
+  isSaveDocumentModalOpen.value = true;
+}
+
+function saveDocument(name: string) {
+  isSaveDocumentModalOpen.value = false;
+  aaMaker.saveDocument(name);
+}
 </script>
 
 <template>
   <main class="aa-maker-shell" aria-label="AA Maker">
-    <TopMenu />
+    <TopMenu @save-document="openSaveDocumentModal" @load-document="aaMaker.loadDocument" />
     <Toolbox
       :tools="aaMaker.tools"
       :active-tool="aaMaker.toolState.activeTool"
@@ -61,9 +73,16 @@ const aaMaker = useAaMaker();
       @delete-active-layer="aaMaker.deleteActiveLayer"
     />
     <footer class="bottom-status-bar" aria-label="Status">
+      <span>{{ aaMaker.documentModel.name }}</span>
       <span>80 x 25</span>
       <span>{{ aaMaker.zoomLabel.value }}</span>
       <span>Canvas Color: {{ aaMaker.documentModel.canvasBGC }}</span>
     </footer>
+    <SaveDocumentModal
+      v-if="isSaveDocumentModalOpen"
+      :initial-name="aaMaker.documentModel.name"
+      @save="saveDocument"
+      @cancel="isSaveDocumentModalOpen = false"
+    />
   </main>
 </template>

@@ -31,6 +31,7 @@ export type Layer = {
 
 export type Document = {
   version: 1;
+  name: string;
   width: 80;
   height: 25;
   canvasBGC: Color;

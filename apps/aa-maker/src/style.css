@@ -62,6 +62,10 @@ button {
   gap: 0;
 }
 
+.menu-item {
+  position: relative;
+}
+
 .menu-list button,
 .palette-button,
 .tool-button {
@@ -88,6 +92,33 @@ button {
 
 .menu-list button:active {
   background: #555555;
+}
+
+.menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 132px;
+  padding: 4px 0;
+  background: #303030;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
+}
+
+.menu-dropdown button {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  text-align: left;
+}
+
+.menu-dropdown button:disabled {
+  color: #777777;
+  cursor: default;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .toolbox {
@@ -723,6 +754,36 @@ button {
 .confirm-modal p {
   margin: 0 0 14px;
   font-size: 14px;
+}
+
+.confirm-modal h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.save-document-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.save-document-label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.save-document-input {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #777777;
+  background: #252525;
+  color: #eeeeee;
+  font: inherit;
+}
+
+.save-document-input:focus {
+  border-color: #eeeeee;
+  outline: 0;
 }
 
 .confirm-modal-actions {

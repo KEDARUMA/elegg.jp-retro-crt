@@ -4,6 +4,7 @@ export const GRID_WIDTH = 80;
 export const GRID_HEIGHT = 25;
 export const DEFAULT_CANVAS_BGC = "ffffff";
 export const DEFAULT_SELECTED_FGC = "000000";
+export const DEFAULT_DOCUMENT_NAME = "aa-maker";
 export const NBSP = "\u00a0";
 
 export function createEmptyDocument(): Document {
@@ -11,6 +12,7 @@ export function createEmptyDocument(): Document {
 
   return {
     version: 1,
+    name: DEFAULT_DOCUMENT_NAME,
     width: GRID_WIDTH,
     height: GRID_HEIGHT,
     canvasBGC: DEFAULT_CANVAS_BGC,

@@ -10,9 +10,9 @@ import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
 import stamps from "../data/stamps.json";
 import { composeDocument } from "../model/composeLayers";
-import { createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
+import { DEFAULT_DOCUMENT_NAME, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
-import type { Layer, Stamp, Tool } from "../model/types";
+import type { Cell, Document as AaDocument, Layer, Stamp, Tool } from "../model/types";
 
 type NormalPalette = {
   kind: "normal";
@@ -272,6 +272,31 @@ export function useAaMaker() {
 
   function selectTool(tool: Tool) {
     toolState.activeTool = tool;
+  }
+
+  function saveDocument(name: string) {
+    const trimmedName = name.trim() || DEFAULT_DOCUMENT_NAME;
+    documentModel.name = trimmedName;
+    downloadTextFile(`${toSafeJsonFilename(trimmedName)}.json`, JSON.stringify(documentModel, null, 2), "application/json");
+  }
+
+  async function loadDocument(file: File) {
+    try {
+      const rawText = await file.text();
+      const parsedValue = JSON.parse(rawText) as unknown;
+      const loadedDocument = normalizeLoadedDocument(parsedValue);
+
+      if (!loadedDocument) {
+        window.alert("Load failed: invalid AA Maker JSON.");
+        return;
+      }
+
+      Object.assign(documentModel, loadedDocument);
+      toolState.selection = { kind: "none" };
+      cursorPosition.value = null;
+    } catch {
+      window.alert("Load failed: invalid AA Maker JSON.");
+    }
   }
 
   function selectPaletteChar(char: string, width: 1 | 2) {
@@ -789,12 +814,14 @@ export function useAaMaker() {
     deleteActiveLayer,
     moveLayer,
     renameLayer,
+    saveDocument,
     selectPalette,
     selectPaletteChar,
     selectStamp,
     selectStampSet,
     selectLayer,
     selectTool,
+    loadDocument,
     stopDrawing,
     toggleLayerLocked,
     toggleLayerVisible,
@@ -805,6 +832,125 @@ export function useAaMaker() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toSafeJsonFilename(name: string) {
+  return (
+    name
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
+      .replace(/\.+$/g, "")
+      .replace(/^-+|-+$/g, "") || DEFAULT_DOCUMENT_NAME
+  );
+}
+
+function normalizeLoadedDocument(value: unknown): AaDocument | null {
+  if (!isRecord(value) || value.version !== 1 || value.width !== GRID_COLUMNS || value.height !== GRID_ROWS || !isColor(value.canvasBGC)) {
+    return null;
+  }
+
+  if (!Array.isArray(value.layers) || value.layers.length === 0 || typeof value.activeLayerId !== "string" || !Number.isInteger(value.nextLayerNumber)) {
+    return null;
+  }
+
+  const layers = value.layers.map(normalizeLoadedLayer);
+
+  if (layers.some((layer) => layer === null)) {
+    return null;
+  }
+
+  if (!layers.some((layer) => layer?.id === value.activeLayerId)) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    name: typeof value.name === "string" && value.name.trim() !== "" ? value.name.trim() : DEFAULT_DOCUMENT_NAME,
+    width: GRID_COLUMNS,
+    height: GRID_ROWS,
+    canvasBGC: value.canvasBGC,
+    layers: layers as Layer[],
+    activeLayerId: value.activeLayerId,
+    nextLayerNumber: value.nextLayerNumber,
+  };
+}
+
+function normalizeLoadedLayer(value: unknown): Layer | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string" || typeof value.visible !== "boolean" || typeof value.locked !== "boolean") {
+    return null;
+  }
+
+  if (!Array.isArray(value.cells) || value.cells.length !== GRID_ROWS) {
+    return null;
+  }
+
+  const cells = value.cells.map((row) => (Array.isArray(row) && row.length === GRID_COLUMNS ? row.map(normalizeLoadedCell) : null));
+
+  if (cells.some((row) => row === null || row.some((cell) => cell === null))) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    name: value.name,
+    visible: value.visible,
+    locked: value.locked,
+    cells: cells as Cell[][],
+  };
+}
+
+function normalizeLoadedCell(value: unknown): Cell | null {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    return null;
+  }
+
+  if (value.kind === "empty") {
+    return { kind: "empty" };
+  }
+
+  if (value.kind === "wide-tail" && Number.isInteger(value.headX) && value.headX >= 0 && value.headX < GRID_COLUMNS) {
+    return {
+      kind: "wide-tail",
+      headX: value.headX,
+    };
+  }
+
+  if (value.kind !== "char" || typeof value.char !== "string" || (value.width !== 1 && value.width !== 2) || !isColor(value.fgc)) {
+    return null;
+  }
+
+  if (value.bgc !== null && !isColor(value.bgc)) {
+    return null;
+  }
+
+  return {
+    kind: "char",
+    char: value.char,
+    width: value.width,
+    fgc: value.fgc,
+    bgc: value.bgc,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isColor(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{6}$/.test(value);
 }
 
 function getUnicodeCodeLabel(char: string) {
