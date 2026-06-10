@@ -62,8 +62,16 @@ type StampPreviewCell = {
   className: string[];
 };
 
-type ExportFormat = "plain" | "ansi" | "mds";
+type ExportFormat = "plain" | "ansi" | "mds" | "html";
 type ExportDestination = "download" | "clipboard";
+type ExportGrid = ReturnType<typeof composeDocument>;
+type HtmlRun = {
+  x: number;
+  width: number;
+  fgc: string | null;
+  bgc: string | null;
+  text: string;
+};
 type ColorPickerTarget = "selected" | "selection";
 type HistorySnapshot = {
   document: AaDocument;
@@ -436,11 +444,11 @@ export function useAaMaker() {
   }
 
   async function exportDocument(format: ExportFormat, destination: ExportDestination) {
-    const content = createExportContent(format, compositedGrid.value);
+    const content = createExportContent(format, compositedGrid.value, documentModel.name, documentModel.canvasBGC);
     const filename = createExportFilename(documentModel.name, format);
 
     if (destination === "download") {
-      downloadTextFile(filename, content, "text/plain");
+      downloadTextFile(filename, content, createExportMimeType(format));
       return;
     }
 
@@ -1986,7 +1994,7 @@ function getContextMenuPosition(x: number, y: number) {
   };
 }
 
-function createExportContent(format: ExportFormat, grid: ReturnType<typeof composeDocument>) {
+function createExportContent(format: ExportFormat, grid: ExportGrid, name: string, canvasBGC: Color) {
   if (format === "ansi") {
     return createAnsiExport(grid);
   }
@@ -1995,49 +2003,54 @@ function createExportContent(format: ExportFormat, grid: ReturnType<typeof compo
     return createMdsExport(grid);
   }
 
+  if (format === "html") {
+    return createHtmlExport(grid, name, canvasBGC);
+  }
+
   return createPlainTextExport(grid);
 }
 
-function createPlainTextExport(grid: ReturnType<typeof composeDocument>) {
+function createPlainTextExport(grid: ExportGrid) {
   return grid.map((row) => trimExportRow(row).filter(isExportContentCell).map((cell) => cell.char).join("")).join("\n");
 }
 
-function createAnsiExport(grid: ReturnType<typeof composeDocument>) {
-  return grid
-    .map((row) => {
-      let currentFGC: string | null = null;
-      let currentBGC: string | null = null;
+function createAnsiExport(grid: ExportGrid) {
+  let currentFGC: string | null = null;
+  let currentBGC: string | null = null;
+  let hasActiveStyle = false;
 
-      const line = trimExportRow(row)
-        .filter(isExportContentCell)
-        .map((cell) => {
-          let prefix = "";
-          const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
-          const nextBGC = cell.sourceLayerId === null ? currentBGC : cell.bgc;
+  const lines = grid.map((row) =>
+    trimExportRow(row)
+      .filter(isExportContentCell)
+      .map((cell) => {
+        let prefix = "";
+        const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
+        const nextBGC = cell.sourceLayerId === null ? currentBGC : cell.bgc;
 
-          if (nextFGC !== currentFGC || nextBGC !== currentBGC) {
-            prefix = nextFGC === null && nextBGC === null ? "\x1b[0m" : `\x1b[38;2;${hexToRgbTriplet(nextFGC ?? "ffffff")};48;2;${hexToRgbTriplet(nextBGC ?? "000000")}m`;
-            currentFGC = nextFGC;
-            currentBGC = nextBGC;
-          }
+        if (nextFGC !== currentFGC || nextBGC !== currentBGC) {
+          prefix = nextFGC === null && nextBGC === null ? "\x1b[0m" : `\x1b[38;2;${hexToRgbTriplet(nextFGC ?? "ffffff")};48;2;${hexToRgbTriplet(nextBGC ?? "000000")}m`;
+          currentFGC = nextFGC;
+          currentBGC = nextBGC;
+          hasActiveStyle = nextFGC !== null || nextBGC !== null;
+        }
 
-          return `${prefix}${cell.char}`;
-        })
-        .join("");
+        return `${prefix}${cell.char}`;
+      })
+      .join(""),
+  );
 
-      return line === "" ? line : `${line}\x1b[0m`;
-    })
-    .join("\n");
+  const content = lines.join("\n");
+  return hasActiveStyle ? `${content}\x1b[0m` : content;
 }
 
-function createMdsExport(grid: ReturnType<typeof composeDocument>) {
-  const lines = grid.map((row) => {
-    let currentFGC: string | null = null;
-    let currentBGC: string | null = null;
-    let hasActiveFGC = false;
-    let hasActiveBGC = false;
+function createMdsExport(grid: ExportGrid) {
+  let currentFGC: string | null = null;
+  let currentBGC: string | null = null;
+  let hasActiveFGC = false;
+  let hasActiveBGC = false;
 
-    const line = trimExportRow(row)
+  const lines = grid.map((row) =>
+    trimExportRow(row)
       .filter(isExportContentCell)
       .map((cell) => {
         let prefix = "";
@@ -2074,12 +2087,83 @@ function createMdsExport(grid: ReturnType<typeof composeDocument>) {
 
         return `${prefix}${escapeMdsText(cell.char)}`;
       })
-      .join("");
+      .join(""),
+  );
 
-    return `${line}${hasActiveBGC ? "<bgcolor>" : ""}${hasActiveFGC ? "<color>" : ""}`;
+  return `<clear>\n${lines.join("\n")}${hasActiveBGC ? "<bgcolor>" : ""}${hasActiveFGC ? "<color>" : ""}`;
+}
+
+function createHtmlExport(grid: ExportGrid, name: string, canvasBGC: Color) {
+  const rows = grid.map(createHtmlRowMarkup).join("\n");
+  const escapedTitle = escapeHtmlText(name.trim() || DEFAULT_DOCUMENT_NAME);
+
+  return [
+    "<!doctype html>",
+    '<html lang="ja">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${escapedTitle}</title>`,
+    "<style>",
+    ":root{--cell-width:8px;--cell-height:16px;--cell-font-size:16px;--aa-font-family:\"MS Gothic\",\"ＭＳ ゴシック\",\"Courier New\",monospace;}",
+    "html,body{margin:0;min-height:100%;font-synthesis:none;}",
+    `body{background:#${canvasBGC};}`,
+    `.aa-art{display:grid;grid-template-rows:repeat(${GRID_ROWS},var(--cell-height));width:calc(var(--cell-width) * ${GRID_COLUMNS});min-height:calc(var(--cell-height) * ${GRID_ROWS});margin:0;padding:16px;background:#${canvasBGC};}`,
+    `.aa-row{display:grid;grid-template-columns:repeat(${GRID_COLUMNS},var(--cell-width));height:var(--cell-height);}`,
+    ".aa-run{display:block;height:var(--cell-height);overflow:visible;font-family:var(--aa-font-family);font-size:var(--cell-font-size);line-height:var(--cell-height);white-space:pre;}",
+    "</style>",
+    "</head>",
+    "<body>",
+    `<div class="aa-art">${rows}</div>`,
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
+function createHtmlRowMarkup(row: ExportGrid[number]) {
+  const runs = createHtmlRuns(row);
+  const content = runs.map(createHtmlRunMarkup).join("");
+
+  return `<div class="aa-row">${content}</div>`;
+}
+
+function createHtmlRuns(row: ExportGrid[number]) {
+  const runs: HtmlRun[] = [];
+  let currentRun: HtmlRun | null = null;
+
+  trimExportRow(row).forEach((cell, x) => {
+    if (cell.kind === "wide-tail") {
+      return;
+    }
+
+    const fgc = cell.sourceLayerId === null ? null : cell.fgc;
+    const bgc = cell.sourceLayerId === null ? null : cell.bgc;
+
+    if (cell.sourceLayerId === null && cell.char === " ") {
+      currentRun = null;
+      return;
+    }
+
+    const width = cell.width;
+    const text = escapeHtmlText(cell.char);
+
+    if (currentRun && currentRun.x + currentRun.width === x && currentRun.fgc === fgc && currentRun.bgc === bgc) {
+      currentRun.width += width;
+      currentRun.text += text;
+      return;
+    }
+
+    currentRun = { x, width, fgc, bgc, text };
+    runs.push(currentRun);
   });
 
-  return `<clear>\n${lines.join("\n")}`;
+  return runs;
+}
+
+function createHtmlRunMarkup(run: HtmlRun) {
+  const style = [`grid-column:${run.x + 1} / span ${run.width}`, createHtmlColorStyle(run.fgc, run.bgc)].filter(Boolean).join(";");
+
+  return `<span class="aa-run" style="${style}">${run.text}</span>`;
 }
 
 function trimExportRow<T extends { char: string }>(row: T[]) {
@@ -2107,7 +2191,15 @@ function createExportFilename(name: string, format: ExportFormat) {
     return `${baseName}.mds`;
   }
 
+  if (format === "html") {
+    return `${baseName}.html`;
+  }
+
   return `${baseName}.txt`;
+}
+
+function createExportMimeType(format: ExportFormat) {
+  return format === "html" ? "text/html" : "text/plain";
 }
 
 function hexToRgbTriplet(hexColor: string) {
@@ -2116,6 +2208,18 @@ function hexToRgbTriplet(hexColor: string) {
 
 function escapeMdsText(value: string) {
   return value;
+}
+
+function createHtmlColorStyle(fgc: string | null, bgc: string | null) {
+  return [fgc ? `color:#${fgc}` : "", bgc ? `background-color:#${bgc}` : ""].filter(Boolean).join(";");
+}
+
+function escapeHtmlText(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\u00a0/g, "&nbsp;");
 }
 
 function downloadTextFile(filename: string, content: string, mimeType: string) {

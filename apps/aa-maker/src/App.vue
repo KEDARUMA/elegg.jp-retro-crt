@@ -10,7 +10,7 @@ import TopMenu from "./components/TopMenu.vue";
 import { useAaMaker } from "./composables/useAaMaker";
 
 const aaMaker = useAaMaker();
-type ExportFormat = "plain" | "ansi" | "mds";
+type ExportFormat = "plain" | "ansi" | "mds" | "html";
 type ExportDestination = "download" | "clipboard";
 
 const isSaveDocumentModalOpen = ref(false);

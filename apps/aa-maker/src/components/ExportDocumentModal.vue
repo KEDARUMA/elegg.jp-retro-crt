@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-type ExportFormat = "plain" | "ansi" | "mds";
+type ExportFormat = "plain" | "ansi" | "mds" | "html";
 type ExportDestination = "download" | "clipboard";
 
 const emit = defineEmits<{
@@ -26,6 +26,7 @@ function exportDocument() {
         <label><input v-model="format" type="radio" value="plain" /> Plain Text</label>
         <label><input v-model="format" type="radio" value="ansi" /> ANSI</label>
         <label><input v-model="format" type="radio" value="mds" /> MDS</label>
+        <label><input v-model="format" type="radio" value="html" /> HTML</label>
       </fieldset>
       <fieldset class="export-option-group">
         <legend>Output</legend>
