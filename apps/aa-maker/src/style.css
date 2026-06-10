@@ -233,6 +233,8 @@ button {
 }
 
 .selected-char {
+  position: relative;
+  z-index: 1;
   display: block;
   width: 34px;
   height: 34px;
@@ -253,6 +255,7 @@ button {
 }
 
 .selected-char.is-attention {
+  z-index: 2;
   animation: selected-char-pop 360ms ease-out;
 }
 
@@ -262,7 +265,7 @@ button {
   }
 
   45% {
-    transform: scale(1.32);
+    transform: scale(1.75);
   }
 
   100% {
