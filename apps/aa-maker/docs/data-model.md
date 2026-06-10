@@ -363,6 +363,8 @@ type UnicodePalette = {
 ## Stamp
 
 スタンプは複数セルの塊として扱う。
+スタンプデータの配備形式は MDS とし、1 つの `.mds` ファイルに複数の `<stamp>` を定義できる。
+読み込み時に `<stamp>` 本文から `width` / `height` / `cells` を算出する。
 
 ```ts
 type Stamp =

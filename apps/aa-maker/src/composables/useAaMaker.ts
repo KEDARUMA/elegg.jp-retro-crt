@@ -6,11 +6,14 @@ import selectIcon from "../assets/icons/select.svg?raw";
 import stampIcon from "../assets/icons/stamp.svg?raw";
 import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
-import stamps from "../data/stamps.json";
+import gikoNekoStampsMds from "../data/stamps/giko-neko.mds?raw";
+import monarStampsMds from "../data/stamps/monar.mds?raw";
+import speechBubbleStampsMds from "../data/stamps/speech-bubble.mds?raw";
 import unicodeGlyphPages from "../data/unicode-glyph-pages.json";
 import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
+import { parseStampMdsSources } from "../model/parseStampMds";
 import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, Tool } from "../model/types";
 import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
 import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
@@ -150,10 +153,15 @@ const SIMILAR_GLYPH_DEFAULT_FONT_FAMILY = "\"MS Gothic\", monospace";
 const SIMILAR_GLYPH_DEFAULT_THRESHOLD = 28;
 const SIMILAR_GLYPH_DEFAULT_MAX_RESULTS = 256;
 const stampSetNames: Record<string, string> = {
-  gikoneko: "Giko Neko",
+  "giko-neko": "Giko Neko",
   monar: "Monar",
   "speech-bubble": "Speech Bubble",
 };
+const stampSources = [
+  { id: "giko-neko", name: "Giko Neko", content: gikoNekoStampsMds },
+  { id: "monar", name: "Monar", content: monarStampsMds },
+  { id: "speech-bubble", name: "Speech Bubble", content: speechBubbleStampsMds },
+];
 const colorSchemes: ColorScheme[] = [
   {
     id: "basic",
@@ -212,7 +220,7 @@ export function useAaMaker() {
     },
   ]);
   const activePaletteId = ref(palettes[0]?.id ?? "");
-  const stampSets = createStampSets(stamps as Stamp[]);
+  const stampSets = createStampSets(parseStampMdsSources(stampSources));
   const activeStampSetId = ref(stampSets[0]?.id ?? "");
   const activeStampId = ref("");
   const documentModel = reactive(createEmptyDocument());

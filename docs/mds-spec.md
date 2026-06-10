@@ -318,6 +318,28 @@ Image link:
 
 `/var/www/mds/test/image/image.mds` は、左寄せ、中央寄せ、右寄せ、画像リンクを 1 ページ内に表示します。
 
+## AA Maker スタンプ
+
+AA Maker のスタンプデータは、MDS 内に `<stamp-set>` と `<stamp>` を置いて定義できます。
+
+```mds
+<stamp-set id="giko-neko" name="Giko Neko">
+<stamp id="giko-neko-001" name="Giko Neko 001">
+　　＿＿＿_∧∧
+～'　＿＿__(,,ﾟДﾟ)
+　 ＵU 　 　Ｕ U
+</stamp>
+</stamp-set>
+```
+
+- 1 つの `.mds` ファイルに複数の `<stamp>` を配置できます。
+- `<stamp-set>` の `id` / `name` はコンボボックスの分類に使います。
+- `<stamp>` の `id` / `name` はスタンプごとの識別と表示名に使います。
+- `width` / `height` は固定メタ情報として持たせず、本文を読み込んだ時点で各スタンプごとに算出します。
+- 行末の空白は削除し、行中と行頭の空白はセル位置として保持します。
+- 半角スペース、全角スペース、タブは透明セルとして扱います。
+- 色が必要な場合は、既存の `<color="...">` / `<bgcolor="...">` と `<color>` / `<bgcolor>` を使います。
+
 ## フォーム
 
 フォーム系タグは Phase 2 で表示仕様を定義し、入力値の保存、送信、イベント連携は Phase 3 で扱います。
