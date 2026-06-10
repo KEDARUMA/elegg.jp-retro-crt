@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import stringWidth from "string-width";
+import { getCharWidth } from "../model/gridOperations";
 
 type TextDraft = {
   x: number;
@@ -153,10 +153,6 @@ function normalizeLines(value: string) {
 function countEditorLines(value: string) {
   const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   return normalized === "" ? 1 : normalized.split("\n").length;
-}
-
-function getCharWidth(char: string): 1 | 2 {
-  return stringWidth(char, { ambiguousIsNarrow: true }) > 1 ? 2 : 1;
 }
 </script>
 

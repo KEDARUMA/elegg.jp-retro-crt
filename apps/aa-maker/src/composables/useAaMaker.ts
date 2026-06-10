@@ -118,12 +118,21 @@ type ToolItem = {
   implemented: boolean;
   shortcut?: string;
 };
+type ToolCursorOverlay = {
+  icon: string;
+  style: Record<string, string>;
+};
 
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
 const UNDO_HISTORY_LIMIT = 100;
 const HISTORY_STORAGE_KEY = "aa-maker.char-palette.history.v1";
+const TOOL_CURSOR_OVERLAY_OFFSET_X = 11;
+const TOOL_CURSOR_OVERLAY_OFFSET_Y = 25;
+const TOOL_CURSOR_OVERLAY_SIZE = 24;
+const TOOL_CURSOR_OVERLAY_PADDING = 3;
+const TOOL_CURSOR_OVERLAY_RADIUS = 8;
 const TOOL_SHORTCUTS: Record<string, Tool> = {
   v: "select",
   i: "eyedropper",
@@ -223,6 +232,7 @@ export function useAaMaker() {
   const textDraft = ref<TextDraft | null>(null);
   const isUnicodeGlyphPageScanRunning = ref(false);
   const hasUnsavedDocumentChange = ref(false);
+  const toolCursorPosition = ref<{ x: number; y: number } | null>(null);
   let similarGlyphSearchHandle: SimilarGlyphSearchHandle | null = null;
 
   const tools = computed<ToolItem[]>(() => [
@@ -269,6 +279,27 @@ export function useAaMaker() {
       shortcut: "S",
     },
   ]);
+  const activeToolCursorIcon = computed(() => tools.value.find((tool) => tool.id === toolState.activeTool)?.icon ?? "");
+  const toolCursorOverlay = computed<ToolCursorOverlay | null>(() => {
+    const position = toolCursorPosition.value;
+    const icon = activeToolCursorIcon.value;
+
+    if (!position || !icon) {
+      return null;
+    }
+
+    return {
+      icon,
+      style: {
+        left: `${position.x + TOOL_CURSOR_OVERLAY_OFFSET_X}px`,
+        top: `${position.y + TOOL_CURSOR_OVERLAY_OFFSET_Y}px`,
+        width: `${TOOL_CURSOR_OVERLAY_SIZE}px`,
+        height: `${TOOL_CURSOR_OVERLAY_SIZE}px`,
+        padding: `${TOOL_CURSOR_OVERLAY_PADDING}px`,
+        borderRadius: `${TOOL_CURSOR_OVERLAY_RADIUS}px`,
+      },
+    };
+  });
 
   const gridCells = Array.from({ length: GRID_COLUMNS * GRID_ROWS }, (_, index) => ({
     x: index % GRID_COLUMNS,
@@ -417,16 +448,22 @@ export function useAaMaker() {
   onMounted(() => {
     document.addEventListener("pointerup", stopDrawing);
     document.addEventListener("pointerleave", stopDrawing);
+    document.addEventListener("pointermove", handleDocumentPointerMove, { capture: true, passive: true });
+    document.addEventListener("mouseout", handleDocumentMouseOut, { capture: true });
     document.addEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.addEventListener("pointerdown", closeSelectionContextMenu);
+    window.addEventListener("blur", hideToolCursor);
     window.addEventListener("beforeunload", handleBeforeUnload);
   });
 
   onUnmounted(() => {
     document.removeEventListener("pointerup", stopDrawing);
     document.removeEventListener("pointerleave", stopDrawing);
+    document.removeEventListener("pointermove", handleDocumentPointerMove, { capture: true });
+    document.removeEventListener("mouseout", handleDocumentMouseOut, { capture: true });
     document.removeEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.removeEventListener("pointerdown", closeSelectionContextMenu);
+    window.removeEventListener("blur", hideToolCursor);
     window.removeEventListener("beforeunload", handleBeforeUnload);
     cancelSimilarSearch();
   });
@@ -712,6 +749,28 @@ export function useAaMaker() {
       setSelectedChar(firstChar, width, true);
       fillSelectionWithChar(firstChar, width);
     }
+  }
+
+  function handleDocumentPointerMove(event: PointerEvent) {
+    if (event.pointerType !== "mouse") {
+      hideToolCursor();
+      return;
+    }
+
+    toolCursorPosition.value = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }
+
+  function handleDocumentMouseOut(event: MouseEvent) {
+    if (!event.relatedTarget) {
+      hideToolCursor();
+    }
+  }
+
+  function hideToolCursor() {
+    toolCursorPosition.value = null;
   }
 
   function handleDocumentKeyDown(event: KeyboardEvent) {
@@ -2236,6 +2295,7 @@ export function useAaMaker() {
     updateSimilarWidthMatch,
     updateUnicodeQuery,
     updateUnicodeScrollOffset,
+    toolCursorOverlay,
   };
 }
 

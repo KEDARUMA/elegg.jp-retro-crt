@@ -2,9 +2,15 @@ import { createEmptyCell } from "./createDocument";
 import type { Cell, CharCell, Layer } from "./types";
 import stringWidth from "string-width";
 
-const MEASURE_FONT = '16px "MS Gothic"';
+const DEFAULT_MEASURE_FONT = '16px "MS Gothic", monospace';
 const measuredCharWidths = new Map<string, 1 | 2>();
+let measureDomHost: HTMLDivElement | null | undefined;
+let measureDomText: HTMLSpanElement | null = null;
+let measuredDomFont = "";
+let measuredDomHalfWidth: number | null = null;
+let measuredDomFullWidth: number | null = null;
 let measureCanvasContext: CanvasRenderingContext2D | null | undefined;
+let measuredCanvasFont = "";
 let measuredHalfWidth: number | null = null;
 let measuredFullWidth: number | null = null;
 
@@ -139,7 +145,7 @@ export function eraseCell(layer: Layer, x: number, y: number): boolean {
 }
 
 export function getCharWidth(char: string): 1 | 2 {
-  const measuredWidth = getMeasuredCharWidth(char);
+  const measuredWidth = getDomMeasuredCharWidth(char) ?? getCanvasMeasuredCharWidth(char);
   return measuredWidth ?? (stringWidth(char, { ambiguousIsNarrow: true }) > 1 ? 2 : 1);
 }
 
@@ -149,12 +155,40 @@ export function getFirstGrapheme(value: string): string {
   return iterator.next().value?.segment ?? "";
 }
 
-function getMeasuredCharWidth(char: string): 1 | 2 | null {
+function getDomMeasuredCharWidth(char: string): 1 | 2 | null {
   if (char === "") {
     return 1;
   }
 
-  const cachedWidth = measuredCharWidths.get(char);
+  const font = getMeasureFont();
+  const cachedWidth = measuredCharWidths.get(`${font}\n${char}`);
+
+  if (cachedWidth) {
+    return cachedWidth;
+  }
+
+  const text = getMeasureDomText();
+
+  if (!text) {
+    return null;
+  }
+
+  ensureDomMeasureFont(text, font);
+  const halfWidth = getMeasuredDomHalfWidth(text);
+  const fullWidth = getMeasuredDomFullWidth(text);
+  const charWidth = measureDomTextWidth(text, char);
+  const width = toCellWidth(charWidth, halfWidth, fullWidth);
+  measuredCharWidths.set(`${font}\n${char}`, width);
+  return width;
+}
+
+function getCanvasMeasuredCharWidth(char: string): 1 | 2 | null {
+  if (char === "") {
+    return 1;
+  }
+
+  const font = getMeasureFont();
+  const cachedWidth = measuredCharWidths.get(`canvas:${font}\n${char}`);
 
   if (cachedWidth) {
     return cachedWidth;
@@ -166,13 +200,95 @@ function getMeasuredCharWidth(char: string): 1 | 2 | null {
     return null;
   }
 
-  context.font = MEASURE_FONT;
+  ensureCanvasMeasureFont(context, font);
   const halfWidth = getMeasuredHalfWidth(context);
   const fullWidth = getMeasuredFullWidth(context);
   const charWidth = context.measureText(char).width;
-  const width = Math.abs(charWidth - fullWidth) < Math.abs(charWidth - halfWidth) ? 2 : 1;
-  measuredCharWidths.set(char, width);
+  const width = toCellWidth(charWidth, halfWidth, fullWidth);
+  measuredCharWidths.set(`canvas:${font}\n${char}`, width);
   return width;
+}
+
+function getMeasureFont() {
+  if (typeof document === "undefined") {
+    return DEFAULT_MEASURE_FONT;
+  }
+
+  const rootStyle = getComputedStyle(document.documentElement);
+  const fontSize = rootStyle.getPropertyValue("--cell-font-size").trim() || "16px";
+  const fontFamily = rootStyle.getPropertyValue("--aa-font-family").trim() || '"MS Gothic", monospace';
+  return `${fontSize} ${fontFamily}`;
+}
+
+function getMeasureDomText() {
+  if (measureDomHost !== undefined) {
+    return measureDomText;
+  }
+
+  if (typeof document === "undefined") {
+    measureDomHost = null;
+    return null;
+  }
+
+  const measureRoot = document.body ?? document.documentElement;
+
+  if (!measureRoot) {
+    return null;
+  }
+
+  const host = document.createElement("div");
+  host.style.position = "absolute";
+  host.style.left = "-10000px";
+  host.style.top = "-10000px";
+  host.style.visibility = "hidden";
+  host.style.pointerEvents = "none";
+  host.style.whiteSpace = "pre";
+  host.style.contain = "layout style";
+
+  const text = document.createElement("span");
+  text.style.display = "inline-block";
+  text.style.margin = "0";
+  text.style.padding = "0";
+  text.style.border = "0";
+  text.style.whiteSpace = "pre";
+
+  host.appendChild(text);
+  measureRoot.appendChild(host);
+  measureDomHost = host;
+  measureDomText = text;
+  return text;
+}
+
+function ensureDomMeasureFont(text: HTMLSpanElement, font: string) {
+  if (measuredDomFont === font) {
+    return;
+  }
+
+  text.style.font = font;
+  measuredDomFont = font;
+  measuredDomHalfWidth = null;
+  measuredDomFullWidth = null;
+}
+
+function measureDomTextWidth(text: HTMLSpanElement, value: string) {
+  text.textContent = value;
+  return text.getBoundingClientRect().width;
+}
+
+function getMeasuredDomHalfWidth(text: HTMLSpanElement) {
+  if (measuredDomHalfWidth === null) {
+    measuredDomHalfWidth = measureDomTextWidth(text, "A");
+  }
+
+  return measuredDomHalfWidth;
+}
+
+function getMeasuredDomFullWidth(text: HTMLSpanElement) {
+  if (measuredDomFullWidth === null) {
+    measuredDomFullWidth = measureDomTextWidth(text, "あ");
+  }
+
+  return measuredDomFullWidth;
 }
 
 function getMeasureCanvasContext() {
@@ -190,6 +306,17 @@ function getMeasureCanvasContext() {
   return measureCanvasContext;
 }
 
+function ensureCanvasMeasureFont(context: CanvasRenderingContext2D, font: string) {
+  if (measuredCanvasFont === font) {
+    return;
+  }
+
+  context.font = font;
+  measuredCanvasFont = font;
+  measuredHalfWidth = null;
+  measuredFullWidth = null;
+}
+
 function getMeasuredHalfWidth(context: CanvasRenderingContext2D) {
   if (measuredHalfWidth === null) {
     measuredHalfWidth = context.measureText("A").width;
@@ -204,4 +331,8 @@ function getMeasuredFullWidth(context: CanvasRenderingContext2D) {
   }
 
   return measuredFullWidth;
+}
+
+function toCellWidth(charWidth: number, halfWidth: number, fullWidth: number): 1 | 2 {
+  return Math.abs(charWidth - fullWidth) < Math.abs(charWidth - halfWidth) ? 2 : 1;
 }

@@ -116,6 +116,14 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @add-layer="aaMaker.addLayer"
       @delete-active-layer="aaMaker.deleteActiveLayer"
     />
+    <div
+      v-if="aaMaker.toolCursorOverlay.value"
+      class="tool-cursor-overlay"
+      :style="aaMaker.toolCursorOverlay.value.style"
+      aria-hidden="true"
+    >
+      <span class="tool-cursor-icon" v-html="aaMaker.toolCursorOverlay.value.icon"></span>
+    </div>
     <footer class="bottom-status-bar" aria-label="Status">
       <span>{{ aaMaker.documentModel.name }}</span>
       <span>80 x 25</span>
