@@ -37,7 +37,7 @@ const emit = defineEmits<{
   cellContext: [x: number, y: number, event: MouseEvent];
   gridMeasureDown: [event: PointerEvent];
   gridWheel: [event: WheelEvent];
-  highlightContext: [event: MouseEvent];
+  highlightContext: [x: number, y: number, event: MouseEvent];
   highlightMove: [deltaX: number, deltaY: number];
   textEditorUpdate: [value: string];
   textEditorConfirm: [];
@@ -221,6 +221,16 @@ function handleHighlightPointerMove(event: PointerEvent) {
   }
 }
 
+function handleHighlightContext(event: MouseEvent) {
+  const cell = getCellFromEvent(event);
+
+  if (!cell) {
+    return;
+  }
+
+  emit("highlightContext", cell.x, cell.y, event);
+}
+
 function handleHighlightPointerEnd(event: PointerEvent) {
   const drag = activeHighlightDrag.value;
 
@@ -293,6 +303,23 @@ function getCellHeight() {
   return stageSize.value.height / 25;
 }
 
+function getCellFromEvent(event: MouseEvent) {
+  if (!gridWrapRef.value) {
+    return null;
+  }
+
+  const wrapRect = gridWrapRef.value.getBoundingClientRect();
+  const cellWidth = Math.max(1, getCellWidth());
+  const cellHeight = Math.max(1, getCellHeight());
+  const x = Math.floor((event.clientX - wrapRect.left - stagePosition.value.x) / cellWidth);
+  const y = Math.floor((event.clientY - wrapRect.top - stagePosition.value.y) / cellHeight);
+
+  return {
+    x: clamp(x, 0, 79),
+    y: clamp(y, 0, 24),
+  };
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -338,7 +365,7 @@ function clamp(value: number, min: number, max: number) {
             @pointermove="handleHighlightPointerMove"
             @pointerup="handleHighlightPointerEnd"
             @pointercancel="handleHighlightPointerEnd"
-            @contextmenu.prevent.stop="emit('highlightContext', $event)"
+            @contextmenu.prevent.stop="handleHighlightContext($event)"
           ></div>
           <div
             v-for="(highlightCell, index) in highlightCells"

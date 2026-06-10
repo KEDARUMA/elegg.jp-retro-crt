@@ -48,6 +48,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :selected-foreground-color="aaMaker.toolState.selectedFGC"
       :selected-background-color="aaMaker.toolState.selectedBGC"
       :canvas-background-color="aaMaker.documentModel.canvasBGC"
+      :selected-char-attention-key="aaMaker.selectedCharAttentionKey.value"
       @select-tool="aaMaker.selectTool"
       @open-selected-foreground-color-picker="aaMaker.openSelectedFGCColorPicker"
       @open-selected-background-color-picker="aaMaker.openSelectedBGCColorPicker"
@@ -119,10 +120,16 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
     <div
       v-if="aaMaker.toolCursorOverlay.value"
       class="tool-cursor-overlay"
+      :class="{ 'is-cell-preview': aaMaker.toolCursorOverlay.value.kind === 'cell' }"
       :style="aaMaker.toolCursorOverlay.value.style"
       aria-hidden="true"
     >
-      <span class="tool-cursor-icon" v-html="aaMaker.toolCursorOverlay.value.icon"></span>
+      <span
+        v-if="aaMaker.toolCursorOverlay.value.kind === 'cell'"
+        class="tool-cursor-cell"
+        :style="aaMaker.toolCursorOverlay.value.cellStyle"
+      >{{ aaMaker.toolCursorOverlay.value.text }}</span>
+      <span v-else class="tool-cursor-icon" v-html="aaMaker.toolCursorOverlay.value.icon ?? ''"></span>
     </div>
     <footer class="bottom-status-bar" aria-label="Status">
       <span>{{ aaMaker.documentModel.name }}</span>

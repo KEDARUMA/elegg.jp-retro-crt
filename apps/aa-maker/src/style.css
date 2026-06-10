@@ -212,6 +212,21 @@ button {
   height: 100%;
 }
 
+.tool-cursor-overlay.is-cell-preview {
+  font-family: var(--aa-font-family);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.tool-cursor-cell {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  font-family: var(--aa-font-family);
+  line-height: 1;
+}
+
 .selected-char-wrap {
   position: relative;
   width: 34px;
@@ -235,6 +250,24 @@ button {
 .selected-char:focus-visible {
   outline: 2px solid #eeeeee;
   outline-offset: -2px;
+}
+
+.selected-char.is-attention {
+  animation: selected-char-pop 360ms ease-out;
+}
+
+@keyframes selected-char-pop {
+  0% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.32);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .editor-panel {

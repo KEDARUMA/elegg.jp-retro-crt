@@ -4,6 +4,7 @@ defineProps<{
   selectedForegroundColor: string;
   selectedBackgroundColor: string | null;
   canvasBackgroundColor: string;
+  attentionKey: number;
 }>();
 
 const emit = defineEmits<{
@@ -28,6 +29,8 @@ function handlePointerDown(event: PointerEvent) {
 <template>
   <button
     class="selected-char"
+    :key="attentionKey"
+    :class="{ 'is-attention': attentionKey > 0 }"
     type="button"
     aria-label="Selected character color"
     :style="{ color: `#${selectedForegroundColor}`, backgroundColor: `#${selectedBackgroundColor ?? canvasBackgroundColor}` }"

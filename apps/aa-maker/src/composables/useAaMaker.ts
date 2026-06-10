@@ -122,8 +122,17 @@ type ToolItem = {
   shortcut?: string;
 };
 type ToolCursorOverlay = {
-  icon: string;
+  kind: "icon" | "cell";
   style: Record<string, string>;
+  icon?: string;
+  text?: string;
+  cellStyle?: Record<string, string>;
+};
+type SelectedAppearanceSnapshot = {
+  char: string | null;
+  width: 1 | 2;
+  fgc: Color;
+  bgc: Color;
 };
 
 const GRID_COLUMNS = 80;
@@ -241,7 +250,10 @@ export function useAaMaker() {
   const isUnicodeGlyphPageScanRunning = ref(false);
   const hasUnsavedDocumentChange = ref(false);
   const toolCursorPosition = ref<{ x: number; y: number } | null>(null);
+  const toolCursorCellPreview = ref<{ char: string; fgc: Color; bgc: Color } | null>(null);
+  const selectedCharAttentionKey = ref(0);
   let similarGlyphSearchHandle: SimilarGlyphSearchHandle | null = null;
+  let toolCursorCellPreviewTimer: number | null = null;
 
   const tools = computed<ToolItem[]>(() => [
     {
@@ -290,13 +302,46 @@ export function useAaMaker() {
   const activeToolCursorIcon = computed(() => tools.value.find((tool) => tool.id === toolState.activeTool)?.icon ?? "");
   const toolCursorOverlay = computed<ToolCursorOverlay | null>(() => {
     const position = toolCursorPosition.value;
-    const icon = activeToolCursorIcon.value;
 
-    if (!position || !icon) {
+    if (!position) {
       return null;
     }
 
+    const cellPreview = toolCursorCellPreview.value;
+
+    if (cellPreview) {
+      return {
+        kind: "cell",
+        text: cellPreview.char,
+        style: {
+          left: `${position.x + TOOL_CURSOR_OVERLAY_OFFSET_X}px`,
+          top: `${position.y + TOOL_CURSOR_OVERLAY_OFFSET_Y}px`,
+          width: `${TOOL_CURSOR_OVERLAY_SIZE}px`,
+          height: `${TOOL_CURSOR_OVERLAY_SIZE}px`,
+          padding: `${TOOL_CURSOR_OVERLAY_PADDING}px`,
+          borderRadius: `${TOOL_CURSOR_OVERLAY_RADIUS}px`,
+          color: `#${cellPreview.fgc}`,
+          backgroundColor: `#${cellPreview.bgc}`,
+        },
+        cellStyle: {
+          color: `#${cellPreview.fgc}`,
+          backgroundColor: `#${cellPreview.bgc}`,
+        },
+      };
+    }
+
+    const icon = activeToolCursorIcon.value;
+
+    if (!icon) {
+      return null;
+    }
+
+    const isPenTool = toolState.activeTool === "pen";
+    const iconForeground = isPenTool ? toolState.selectedFGC : "111111";
+    const iconBackground = isPenTool ? (toolState.selectedBGC ?? documentModel.canvasBGC) : "f2f2f2";
+
     return {
+      kind: "icon",
       icon,
       style: {
         left: `${position.x + TOOL_CURSOR_OVERLAY_OFFSET_X}px`,
@@ -305,6 +350,9 @@ export function useAaMaker() {
         height: `${TOOL_CURSOR_OVERLAY_SIZE}px`,
         padding: `${TOOL_CURSOR_OVERLAY_PADDING}px`,
         borderRadius: `${TOOL_CURSOR_OVERLAY_RADIUS}px`,
+        color: `#${iconForeground}`,
+        backgroundColor: `#${iconBackground}`,
+        borderColor: `#${iconForeground}`,
       },
     };
   });
@@ -458,6 +506,7 @@ export function useAaMaker() {
     document.addEventListener("pointerleave", stopDrawing);
     document.addEventListener("pointermove", handleDocumentPointerMove, { capture: true, passive: true });
     document.addEventListener("mouseout", handleDocumentMouseOut, { capture: true });
+    document.addEventListener("contextmenu", handleDocumentContextMenu, { capture: true });
     document.addEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.addEventListener("pointerdown", closeSelectionContextMenu);
     window.addEventListener("blur", hideToolCursor);
@@ -469,10 +518,12 @@ export function useAaMaker() {
     document.removeEventListener("pointerleave", stopDrawing);
     document.removeEventListener("pointermove", handleDocumentPointerMove, { capture: true });
     document.removeEventListener("mouseout", handleDocumentMouseOut, { capture: true });
+    document.removeEventListener("contextmenu", handleDocumentContextMenu, { capture: true });
     document.removeEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.removeEventListener("pointerdown", closeSelectionContextMenu);
     window.removeEventListener("blur", hideToolCursor);
     window.removeEventListener("beforeunload", handleBeforeUnload);
+    clearToolCursorCellPreview();
     cancelSimilarSearch();
   });
 
@@ -498,6 +549,8 @@ export function useAaMaker() {
   }
 
   function selectSelectedColor(mode: "fgc" | "bgc", color: Color | null) {
+    const previousAppearance = getSelectedAppearanceSnapshot();
+
     if (colorPickerTarget.value === "selection") {
       applySelectionColor(mode, color);
       closeSelectedColorPicker();
@@ -515,6 +568,8 @@ export function useAaMaker() {
     }
 
     selectedColorPickerMode.value = null;
+    notifySelectedAppearanceChange(previousAppearance);
+
   }
 
   function openColorPicker(mode: "fgc" | "bgc", target: ColorPickerTarget) {
@@ -603,21 +658,30 @@ export function useAaMaker() {
 
   function invertCanvasBackground() {
     const previousForegroundDefaultColor = getForegroundDefaultColor();
+    const previousAppearance = getSelectedAppearanceSnapshot();
 
     recordDocumentHistory();
     documentModel.canvasBGC = invertHexColor(documentModel.canvasBGC);
     updateForegroundDefaultColor(previousForegroundDefaultColor, getForegroundDefaultColor());
+    notifySelectedAppearanceChange(previousAppearance);
   }
 
   function selectPaletteChar(char: string, width: 1 | 2, fillEmptyOnly = false) {
+    const previousAppearance = getSelectedAppearanceSnapshot();
+
+    if (toolState.activeTool !== "pen" && toolState.activeTool !== "select") {
+      selectTool("pen");
+    }
+
     setSelectedChar(char, width, true);
 
     if (fillEmptyOnly) {
       fillEmptySelectionWithChar(char, width);
-      return;
+    } else {
+      fillSelectionWithChar(char, width);
     }
 
-    fillSelectionWithChar(char, width);
+    notifySelectedAppearanceChange(previousAppearance);
   }
 
   function selectPalette(paletteId: string) {
@@ -752,11 +816,21 @@ export function useAaMaker() {
     }
 
     if (firstChar) {
+      const previousAppearance = getSelectedAppearanceSnapshot();
       const width = getCharWidth(firstChar);
 
       setSelectedChar(firstChar, width, true);
       fillSelectionWithChar(firstChar, width);
+      notifySelectedAppearanceChange(previousAppearance);
     }
+  }
+
+  function handleDocumentContextMenu(event: MouseEvent) {
+    if (isBrowserTextFieldTarget(event.target)) {
+      return;
+    }
+
+    event.preventDefault();
   }
 
   function handleDocumentPointerMove(event: PointerEvent) {
@@ -782,11 +856,26 @@ export function useAaMaker() {
   }
 
   function handleDocumentKeyDown(event: KeyboardEvent) {
-    if (event.defaultPrevented || isTextEditingTarget(event.target)) {
+    if (event.defaultPrevented) {
       return;
     }
 
     const key = event.key.toLowerCase();
+
+    if ((event.ctrlKey || event.metaKey) && key === "v") {
+      if (isClipboardPasteEditingTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void pasteSelectionFromClipboard();
+      return;
+    }
+
+    if (isTextEditingTarget(event.target)) {
+      return;
+    }
 
     if ((event.ctrlKey || event.metaKey) && key === "a") {
       event.preventDefault();
@@ -865,10 +954,6 @@ export function useAaMaker() {
       return;
     }
 
-    if ((event.ctrlKey || event.metaKey) && key === "v") {
-      event.preventDefault();
-      void pasteSelectionFromClipboard();
-    }
   }
 
   function updateUnicodeQuery(query: string) {
@@ -1073,15 +1158,44 @@ export function useAaMaker() {
   }
 
   function handleCellContext(x: number, y: number, event: MouseEvent) {
-    event.preventDefault();
+    handleGridContextPickAndFill(x, y, event);
+  }
 
-    if (toolState.highlight.kind === "rect") {
-      cursorPosition.value = { x, y };
-      openSelectionContextMenu(event.clientX, event.clientY);
+  function handleHighlightContext(x: number, y: number, event: MouseEvent) {
+    handleGridContextPickAndFill(x, y, event);
+  }
+
+  function handleGridContextPickAndFill(x: number, y: number, event: MouseEvent) {
+    event.preventDefault();
+    closeSelectionContextMenu();
+    ensurePenToolForGridContextAction();
+    toolCursorPosition.value = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+
+    const pickedCell = pickContextChar(x, y);
+
+    if (!pickedCell) {
       return;
     }
 
-    pickChar(x, y);
+    if (toolState.activeTool === "pen") {
+      void copyPickedCharToClipboard(pickedCell.char);
+    }
+
+    const highlight = getRectHighlight();
+
+    if (!highlight) {
+      return;
+    }
+
+    if (event.shiftKey) {
+      fillEmptySelectionWithChar(pickedCell.char, pickedCell.width);
+      return;
+    }
+
+    fillSelectionWithChar(pickedCell.char, pickedCell.width);
   }
 
   function handleCellUp(x: number, y: number) {
@@ -1303,15 +1417,6 @@ export function useAaMaker() {
 
     event.preventDefault();
     commitHighlight({ transparent: isTransparentCommitEvent(event) });
-  }
-
-  function handleHighlightContext(event: MouseEvent) {
-    if (toolState.highlight.kind !== "rect") {
-      return;
-    }
-
-    event.preventDefault();
-    openSelectionContextMenu(event.clientX, event.clientY);
   }
 
   function deleteSelection() {
@@ -1698,6 +1803,7 @@ export function useAaMaker() {
         }
       });
     }
+
   }
 
   function forEachCharCellInHighlight(highlight: HighlightRect, callback: (cell: Extract<Cell, { kind: "char" }>) => void) {
@@ -1724,19 +1830,120 @@ export function useAaMaker() {
     return true;
   }
 
-  function pickChar(x: number, y: number) {
+  function pickChar(x: number, y: number, clearOnEmpty = false) {
+    return pickCharAt(x, y, clearOnEmpty);
+  }
+
+  function pickCharAt(x: number, y: number, clearOnEmpty = false) {
     const activeLayer = getEditableActiveLayer();
     const cell = activeLayer ? getHeadCell(activeLayer, x, y) : null;
 
     if (!cell) {
-      setSelectedChar(null, 1, false);
-      toolState.selectedBGC = null;
-      return;
+      if (clearOnEmpty) {
+        setSelectedChar(null, 1, false);
+        toolState.selectedBGC = null;
+      }
+      return null;
     }
+
+    return applyPickedCell(cell);
+  }
+
+  function pickContextChar(x: number, y: number) {
+    const highlight = getRectHighlight();
+
+    if (highlight && isPointInHighlight(x, y)) {
+      const highlightedCell = getHeadCell({ cells: highlight.contents } as Layer, x - highlight.x, y - highlight.y);
+
+      if (highlightedCell) {
+        return applyPickedCell(highlightedCell);
+      }
+    }
+
+    return pickCharAt(x, y, false);
+  }
+
+  function applyPickedCell(cell: Extract<Cell, { kind: "char" }>) {
+    const previousAppearance = getSelectedAppearanceSnapshot();
 
     setSelectedChar(cell.char, cell.width, true);
     toolState.selectedFGC = cell.fgc;
     toolState.selectedBGC = cell.bgc;
+
+    notifySelectedAppearanceChange(previousAppearance);
+    return cell;
+  }
+
+  function ensurePenToolForGridContextAction() {
+    if (toolState.activeTool !== "pen" && toolState.activeTool !== "select") {
+      selectTool("pen");
+    }
+  }
+
+  async function copyPickedCharToClipboard(char: string) {
+    if (!navigator.clipboard) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(char);
+    } catch {
+      // 右クリックの選択動作自体は成功させる。
+    }
+  }
+
+  function getSelectedAppearanceSnapshot(): SelectedAppearanceSnapshot {
+    return {
+      char: toolState.selectedChar,
+      width: toolState.selectedCharWidth,
+      fgc: toolState.selectedFGC,
+      bgc: toolState.selectedBGC ?? documentModel.canvasBGC,
+    };
+  }
+
+  function hasSelectedAppearanceChanged(previous: SelectedAppearanceSnapshot) {
+    return (
+      previous.char !== toolState.selectedChar ||
+      previous.width !== toolState.selectedCharWidth ||
+      previous.fgc !== toolState.selectedFGC ||
+      previous.bgc !== (toolState.selectedBGC ?? documentModel.canvasBGC)
+    );
+  }
+
+  function notifySelectedAppearanceChange(previousAppearance: SelectedAppearanceSnapshot) {
+    if (!hasSelectedAppearanceChanged(previousAppearance)) {
+      return;
+    }
+
+    triggerSelectedCharAttention();
+    showToolCursorSelectedAppearancePreview();
+  }
+
+  function triggerSelectedCharAttention() {
+    selectedCharAttentionKey.value += 1;
+  }
+
+  function showToolCursorSelectedAppearancePreview() {
+    if (!toolCursorPosition.value || toolState.selectedChar === null) {
+      return;
+    }
+
+    clearToolCursorCellPreview();
+    toolCursorCellPreview.value = {
+      char: toolState.selectedChar,
+      fgc: toolState.selectedFGC,
+      bgc: toolState.selectedBGC ?? documentModel.canvasBGC,
+    };
+    toolCursorCellPreviewTimer = window.setTimeout(clearToolCursorCellPreview, 1000);
+  }
+
+  function clearToolCursorCellPreview() {
+    if (toolCursorCellPreviewTimer !== null) {
+      window.clearTimeout(toolCursorCellPreviewTimer);
+      toolCursorCellPreviewTimer = null;
+    }
+
+    toolCursorCellPreview.value = null;
   }
 
   function setSelectedChar(char: string | null, width: 1 | 2, shouldUpdateHistory: boolean) {
@@ -2238,6 +2445,7 @@ export function useAaMaker() {
     layerList,
     palettes,
     selectedPaletteCode,
+    selectedCharAttentionKey,
     selectionStyle,
     selectionContextMenu,
     selectionContextMenuStyle,
@@ -2698,6 +2906,26 @@ function isTextEditingTarget(target: EventTarget | null) {
   }
 
   return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+}
+
+function isClipboardPasteEditingTarget(target: EventTarget | null) {
+  if (document.querySelector('[role="dialog"]')) {
+    return true;
+  }
+
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+}
+
+function isBrowserTextFieldTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 }
 
 function blurTextEditingTarget() {

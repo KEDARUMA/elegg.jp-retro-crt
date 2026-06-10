@@ -17,6 +17,7 @@ defineProps<{
   selectedForegroundColor: string;
   selectedBackgroundColor: string | null;
   canvasBackgroundColor: string;
+  selectedCharAttentionKey: number;
 }>();
 
 defineEmits<{
@@ -53,6 +54,7 @@ function getToolTitle(tool: ToolItem) {
         :selected-foreground-color="selectedForegroundColor"
         :selected-background-color="selectedBackgroundColor"
         :canvas-background-color="canvasBackgroundColor"
+        :attention-key="selectedCharAttentionKey"
         @open-foreground-color="$emit('openSelectedForegroundColorPicker')"
         @open-background-color="$emit('openSelectedBackgroundColorPicker')"
       />
