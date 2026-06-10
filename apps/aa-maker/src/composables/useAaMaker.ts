@@ -1,17 +1,19 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import eraserIcon from "../assets/icons/eraser.svg?raw";
 import eyedropperIcon from "../assets/icons/eyedropper.svg?raw";
-import paletteIcon from "../assets/icons/palette.svg?raw";
 import penIcon from "../assets/icons/pen.svg?raw";
 import selectIcon from "../assets/icons/select.svg?raw";
 import stampIcon from "../assets/icons/stamp.svg?raw";
 import textIcon from "../assets/icons/text.svg?raw";
 import charPalettes from "../data/char-palettes.json";
 import stamps from "../data/stamps.json";
+import unicodeGlyphPages from "../data/unicode-glyph-pages.json";
 import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
 import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, Tool } from "../model/types";
+import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
+import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
 
 type NormalPalette = {
   kind: "normal";
@@ -46,7 +48,25 @@ type UnicodePalette = {
   scrollOffset: number;
 };
 
-type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette;
+type SimilarPalette = {
+  kind: "similar";
+  id: string;
+  name: string;
+  query: string;
+  fontFamily: string;
+  canvasSize: 16 | 32;
+  threshold: number;
+  widthMatch: boolean;
+  maxResults: number;
+  results: SimilarGlyphSearchResult[];
+  isSearching: boolean;
+  status: string;
+  checkedPageCount: number;
+  totalPageCount: number;
+  checkedCodePointCount: number;
+};
+
+type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
 
 type StampSet = {
   id: string;
@@ -91,12 +111,35 @@ type RectSelection = {
 };
 
 type HighlightRect = Extract<Highlight, { kind: "rect" }>;
+type ToolItem = {
+  id: Tool;
+  label: string;
+  icon: string;
+  implemented: boolean;
+  shortcut?: string;
+};
 
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
 const UNDO_HISTORY_LIMIT = 100;
 const HISTORY_STORAGE_KEY = "aa-maker.char-palette.history.v1";
+const TOOL_SHORTCUTS: Record<string, Tool> = {
+  v: "select",
+  i: "eyedropper",
+  p: "pen",
+  e: "eraser",
+  t: "text",
+  s: "stamp",
+};
+const UNICODE_GLYPH_SCAN_PAGE_SIZE = 256;
+const UNICODE_GLYPH_SCAN_MIN_CODE_POINT = 0x20;
+const UNICODE_GLYPH_SCAN_MAX_CODE_POINT = 0x10ffff;
+const UNICODE_GLYPH_SCAN_ALL_FIRST_PAGE = 0;
+const UNICODE_GLYPH_SCAN_ALL_PAGE_COUNT = Math.ceil((UNICODE_GLYPH_SCAN_MAX_CODE_POINT + 1) / UNICODE_GLYPH_SCAN_PAGE_SIZE);
+const SIMILAR_GLYPH_DEFAULT_FONT_FAMILY = "\"MS Gothic\", monospace";
+const SIMILAR_GLYPH_DEFAULT_THRESHOLD = 28;
+const SIMILAR_GLYPH_DEFAULT_MAX_RESULTS = 256;
 const stampSetNames: Record<string, string> = {
   gikoneko: "Giko Neko",
   monar: "Monar",
@@ -141,6 +184,23 @@ export function useAaMaker() {
       query: "",
       scrollOffset: 0,
     },
+    {
+      kind: "similar",
+      id: "similar",
+      name: "Similar",
+      query: "",
+      fontFamily: SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
+      canvasSize: 16,
+      threshold: SIMILAR_GLYPH_DEFAULT_THRESHOLD,
+      widthMatch: false,
+      maxResults: SIMILAR_GLYPH_DEFAULT_MAX_RESULTS,
+      results: [],
+      isSearching: false,
+      status: "Idle",
+      checkedPageCount: 0,
+      totalPageCount: 0,
+      checkedCodePointCount: 0,
+    },
   ]);
   const activePaletteId = ref(palettes[0]?.id ?? "");
   const stampSets = createStampSets(stamps as Stamp[]);
@@ -161,49 +221,52 @@ export function useAaMaker() {
   const undoStack = ref<HistorySnapshot[]>([]);
   const redoStack = ref<HistorySnapshot[]>([]);
   const textDraft = ref<TextDraft | null>(null);
+  const isUnicodeGlyphPageScanRunning = ref(false);
+  const hasUnsavedDocumentChange = ref(false);
+  let similarGlyphSearchHandle: SimilarGlyphSearchHandle | null = null;
 
-  const tools = computed<{ id: Tool; label: string; icon: string; implemented: boolean }[]>(() => [
+  const tools = computed<ToolItem[]>(() => [
     {
       id: "select",
       label: "範囲選択",
       icon: selectIcon,
       implemented: true,
+      shortcut: "V",
     },
     {
       id: "eyedropper",
       label: "スポイト",
       icon: eyedropperIcon,
       implemented: true,
+      shortcut: "I",
     },
     {
       id: "pen",
       label: "ペン",
       icon: penIcon,
       implemented: true,
+      shortcut: "P",
     },
     {
       id: "eraser",
       label: "消しゴム",
       icon: eraserIcon,
       implemented: true,
+      shortcut: "E",
     },
     {
       id: "text",
       label: "テキスト",
       icon: textIcon,
       implemented: true,
+      shortcut: "T",
     },
     {
       id: "stamp",
       label: "スタンプ",
       icon: stampIcon,
       implemented: true,
-    },
-    {
-      id: "range-color",
-      label: "範囲カラー",
-      icon: paletteIcon,
-      implemented: toolState.highlight.kind === "rect",
+      shortcut: "S",
     },
   ]);
 
@@ -356,6 +419,7 @@ export function useAaMaker() {
     document.addEventListener("pointerleave", stopDrawing);
     document.addEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.addEventListener("pointerdown", closeSelectionContextMenu);
+    window.addEventListener("beforeunload", handleBeforeUnload);
   });
 
   onUnmounted(() => {
@@ -363,6 +427,8 @@ export function useAaMaker() {
     document.removeEventListener("pointerleave", stopDrawing);
     document.removeEventListener("keydown", handleDocumentKeyDown, { capture: true });
     document.removeEventListener("pointerdown", closeSelectionContextMenu);
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    cancelSimilarSearch();
   });
 
   function selectTool(tool: Tool) {
@@ -418,6 +484,7 @@ export function useAaMaker() {
     const trimmedName = name.trim() || DEFAULT_DOCUMENT_NAME;
     documentModel.name = trimmedName;
     downloadTextFile(`${toSafeJsonFilename(trimmedName)}.json`, JSON.stringify(documentModel, null, 2), "application/json");
+    hasUnsavedDocumentChange.value = false;
   }
 
   async function loadDocument(file: File) {
@@ -438,6 +505,7 @@ export function useAaMaker() {
       closeTextEditor();
       undoStack.value = [];
       redoStack.value = [];
+      hasUnsavedDocumentChange.value = false;
     } catch {
       window.alert("Load failed: invalid AA Maker JSON.");
     }
@@ -456,6 +524,35 @@ export function useAaMaker() {
       await navigator.clipboard.writeText(content);
     } catch {
       window.alert("Export failed: could not write to clipboard.");
+    }
+  }
+
+  async function scanAllUnicodeGlyphPages() {
+    if (!import.meta.env.DEV || isUnicodeGlyphPageScanRunning.value) {
+      return;
+    }
+
+    isUnicodeGlyphPageScanRunning.value = true;
+
+    try {
+      const { scanUnicodeGlyphPages } = await import("../dev/unicodeGlyphPageScan");
+      const result = await scanUnicodeGlyphPages({
+        firstPage: UNICODE_GLYPH_SCAN_ALL_FIRST_PAGE,
+        pageCount: UNICODE_GLYPH_SCAN_ALL_PAGE_COUNT,
+        pageSize: UNICODE_GLYPH_SCAN_PAGE_SIZE,
+        minCodePoint: UNICODE_GLYPH_SCAN_MIN_CODE_POINT,
+        maxCodePoint: UNICODE_GLYPH_SCAN_MAX_CODE_POINT,
+        canvasSize: 16,
+        font: getUnicodeGlyphScanFont(),
+        workerCount: getUnicodeGlyphScanWorkerCount(),
+        notdefFilter: true,
+      });
+
+      downloadTextFile(createUnicodeGlyphScanFilename(result.firstPage, result.pageCount), JSON.stringify(result, null, 2), "application/json");
+    } catch (error) {
+      window.alert(`Unicode glyph page scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      isUnicodeGlyphPageScanRunning.value = false;
     }
   }
 
@@ -648,6 +745,29 @@ export function useAaMaker() {
       return;
     }
 
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (key === "c") {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (event.shiftKey) {
+          openSelectedBGCColorPicker();
+        } else {
+          openSelectedFGCColorPicker();
+        }
+        return;
+      }
+
+      const shortcutTool = !event.shiftKey ? TOOL_SHORTCUTS[key] : undefined;
+
+      if (shortcutTool) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectTool(shortcutTool);
+        return;
+      }
+    }
+
     if (event.key === "Enter" && toolState.highlight.kind === "rect") {
       event.preventDefault();
       commitHighlight({ transparent: isTransparentCommitEvent(event) });
@@ -700,6 +820,128 @@ export function useAaMaker() {
     }
   }
 
+  function updateSimilarQuery(query: string) {
+    const palette = getSimilarPalette();
+
+    if (palette) {
+      palette.query = query;
+    }
+  }
+
+  function updateSimilarFontFamily(fontFamily: string) {
+    const palette = getSimilarPalette();
+
+    if (palette) {
+      palette.fontFamily = fontFamily;
+    }
+  }
+
+  function updateSimilarCanvasSize(canvasSize: number) {
+    const palette = getSimilarPalette();
+
+    if (palette) {
+      palette.canvasSize = canvasSize === 32 ? 32 : 16;
+    }
+  }
+
+  function updateSimilarThreshold(threshold: number) {
+    const palette = getSimilarPalette();
+
+    if (palette) {
+      palette.threshold = clamp(threshold, 0, 100);
+    }
+  }
+
+  function updateSimilarWidthMatch(widthMatch: boolean) {
+    const palette = getSimilarPalette();
+
+    if (palette) {
+      palette.widthMatch = widthMatch;
+    }
+  }
+
+  function updateSimilarMaxResults(maxResults: number) {
+    const palette = getSimilarPalette();
+
+    if (palette) {
+      palette.maxResults = Math.max(1, Math.min(2048, Math.floor(maxResults)));
+    }
+  }
+
+  function startSimilarSearch() {
+    const palette = getSimilarPalette();
+
+    if (!palette || palette.isSearching) {
+      return;
+    }
+
+    const targetChar = getFirstGrapheme(palette.query) || toolState.selectedChar;
+
+    palette.results = [];
+    palette.checkedPageCount = 0;
+    palette.totalPageCount = 0;
+    palette.checkedCodePointCount = 0;
+
+    if (!targetChar) {
+      palette.status = "Input required";
+      return;
+    }
+
+    palette.query = targetChar;
+    palette.isSearching = true;
+    palette.status = "Searching";
+
+    similarGlyphSearchHandle = startSimilarGlyphSearch(
+      {
+        pageData: unicodeGlyphPages as UnicodeGlyphPageData,
+        targetChar,
+        targetWidth: getCharWidth(targetChar),
+        fontFamily: palette.fontFamily.trim() || SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
+        canvasSize: palette.canvasSize,
+        threshold: palette.threshold,
+        widthMatch: palette.widthMatch,
+        maxResults: palette.maxResults,
+        workerCount: getUnicodeGlyphScanWorkerCount(),
+      },
+      {
+        onResults(results) {
+          palette.results.push(...results);
+        },
+        onProgress(progress) {
+          palette.checkedPageCount = progress.checkedPageCount;
+          palette.totalPageCount = progress.totalPageCount;
+          palette.checkedCodePointCount = progress.checkedCodePointCount;
+          palette.status = "Searching";
+        },
+        onDone(progress, cancelled) {
+          similarGlyphSearchHandle = null;
+          palette.isSearching = false;
+          palette.checkedPageCount = progress.checkedPageCount;
+          palette.totalPageCount = progress.totalPageCount;
+          palette.checkedCodePointCount = progress.checkedCodePointCount;
+          palette.status = cancelled && palette.results.length < palette.maxResults ? "Stopped" : "Done";
+        },
+        onError(message) {
+          similarGlyphSearchHandle = null;
+          palette.isSearching = false;
+          palette.status = message;
+        },
+      },
+    );
+  }
+
+  function cancelSimilarSearch() {
+    const palette = getSimilarPalette();
+
+    similarGlyphSearchHandle?.cancel();
+    similarGlyphSearchHandle = null;
+
+    if (palette?.isSearching) {
+      palette.isSearching = false;
+      palette.status = "Stopped";
+    }
+  }
+
   function assignHistoryChar(index: number) {
     const palette = getHistoryPalette();
 
@@ -725,6 +967,7 @@ export function useAaMaker() {
     }
 
     event.preventDefault();
+    blurTextEditingTarget();
 
     if (toolState.highlight.kind === "rect") {
       if (!isPointInHighlight(x, y)) {
@@ -1036,12 +1279,22 @@ export function useAaMaker() {
 
   function recordDocumentHistory() {
     undoStack.value.push(createHistorySnapshot());
+    hasUnsavedDocumentChange.value = true;
 
     if (undoStack.value.length > UNDO_HISTORY_LIMIT) {
       undoStack.value.shift();
     }
 
     redoStack.value = [];
+  }
+
+  function handleBeforeUnload(event: BeforeUnloadEvent) {
+    if (!hasUnsavedDocumentChange.value) {
+      return;
+    }
+
+    event.preventDefault();
+    event.returnValue = "";
   }
 
   function undoDocumentChange() {
@@ -1446,6 +1699,10 @@ export function useAaMaker() {
 
   function getHistoryPalette() {
     return palettes.find((palette): palette is HistoryPalette => palette.kind === "history");
+  }
+
+  function getSimilarPalette() {
+    return palettes.find((palette): palette is SimilarPalette => palette.kind === "similar");
   }
 
   function getCellText(x: number, y: number) {
@@ -1910,6 +2167,7 @@ export function useAaMaker() {
     gridCells,
     gridLineStyle,
     info,
+    isUnicodeGlyphPageScanRunning,
     layerList,
     palettes,
     selectedPaletteCode,
@@ -1947,6 +2205,7 @@ export function useAaMaker() {
     moveLayer,
     renameLayer,
     saveDocument,
+    scanAllUnicodeGlyphPages,
     selectPalette,
     selectPaletteChar,
     closeSelectedColorPicker,
@@ -1967,6 +2226,14 @@ export function useAaMaker() {
     updateTextEditorValue,
     toggleLayerLocked,
     toggleLayerVisible,
+    cancelSimilarSearch,
+    startSimilarSearch,
+    updateSimilarCanvasSize,
+    updateSimilarFontFamily,
+    updateSimilarMaxResults,
+    updateSimilarQuery,
+    updateSimilarThreshold,
+    updateSimilarWidthMatch,
     updateUnicodeQuery,
     updateUnicodeScrollOffset,
   };
@@ -2222,6 +2489,22 @@ function escapeHtmlText(value: string) {
     .replace(/\u00a0/g, "&nbsp;");
 }
 
+function getUnicodeGlyphScanFont() {
+  const fontFamily = getComputedStyle(document.documentElement).getPropertyValue("--aa-font-family").trim() || "\"MS Gothic\", monospace";
+
+  return `16px ${fontFamily}`;
+}
+
+function getUnicodeGlyphScanWorkerCount() {
+  return navigator.hardwareConcurrency || 2;
+}
+
+function createUnicodeGlyphScanFilename(firstPage: number, pageCount: number) {
+  const lastPage = firstPage + pageCount - 1;
+
+  return `aa-maker-unicode-glyph-pages-${firstPage.toString(16).padStart(4, "0")}-${lastPage.toString(16).padStart(4, "0")}.json`;
+}
+
 function downloadTextFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
   const url = URL.createObjectURL(blob);
@@ -2347,6 +2630,18 @@ function isTextEditingTarget(target: EventTarget | null) {
   }
 
   return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+}
+
+function blurTextEditingTarget() {
+  const activeElement = document.activeElement;
+
+  if (activeElement instanceof HTMLElement && isEditableElement(activeElement)) {
+    activeElement.blur();
+  }
+}
+
+function isEditableElement(element: HTMLElement) {
+  return element.isContentEditable || element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.tagName === "SELECT";
 }
 
 function getClipboardLines(text: string) {

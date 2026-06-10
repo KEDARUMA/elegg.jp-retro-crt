@@ -6,6 +6,7 @@ export const DEFAULT_CANVAS_BGC = "ffffff";
 export const DEFAULT_SELECTED_FGC = "000000";
 export const DEFAULT_DOCUMENT_NAME = "aa-maker";
 export const NBSP = "\u00a0";
+export const CP437_FULL_BLOCK = "\u2588";
 
 export function createEmptyDocument(): Document {
   const layer = createLayer("layer-1", "Layer 1");
@@ -25,7 +26,7 @@ export function createEmptyDocument(): Document {
 export function createInitialToolState(): ToolState {
   return {
     activeTool: "pen",
-    selectedChar: NBSP,
+    selectedChar: CP437_FULL_BLOCK,
     selectedCharWidth: 1,
     selectedFGC: DEFAULT_SELECTED_FGC,
     selectedBGC: null,

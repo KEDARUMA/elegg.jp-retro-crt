@@ -10,6 +10,7 @@ import CharacterPalette from "./CharacterPalette.vue";
 import ConfirmModal from "./ConfirmModal.vue";
 import InfoPanel from "./InfoPanel.vue";
 import type { Layer, Stamp, StampCell, Tool } from "../model/types";
+import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
 
 type NormalPalette = {
   kind: "normal";
@@ -44,7 +45,25 @@ type UnicodePalette = {
   scrollOffset: number;
 };
 
-type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette;
+type SimilarPalette = {
+  kind: "similar";
+  id: string;
+  name: string;
+  query: string;
+  fontFamily: string;
+  canvasSize: 16 | 32;
+  threshold: number;
+  widthMatch: boolean;
+  maxResults: number;
+  results: SimilarGlyphSearchResult[];
+  isSearching: boolean;
+  status: string;
+  checkedPageCount: number;
+  totalPageCount: number;
+  checkedCodePointCount: number;
+};
+
+type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
 
 type StampSet = {
   id: string;
@@ -88,6 +107,14 @@ const emit = defineEmits<{
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
+  updateSimilarQuery: [query: string];
+  updateSimilarFontFamily: [fontFamily: string];
+  updateSimilarCanvasSize: [canvasSize: number];
+  updateSimilarThreshold: [threshold: number];
+  updateSimilarWidthMatch: [widthMatch: boolean];
+  updateSimilarMaxResults: [maxResults: number];
+  startSimilarSearch: [];
+  cancelSimilarSearch: [];
   assignHistoryChar: [index: number];
   selectLayer: [layerId: string];
   toggleLayerVisible: [layerId: string];
@@ -193,6 +220,14 @@ function getStampCellStyle(cell: StampCell | null) {
       @keyboard-input="(value) => $emit('keyboardInput', value)"
       @update-unicode-query="(query) => $emit('updateUnicodeQuery', query)"
       @update-unicode-scroll-offset="(scrollOffset) => $emit('updateUnicodeScrollOffset', scrollOffset)"
+      @update-similar-query="(query) => $emit('updateSimilarQuery', query)"
+      @update-similar-font-family="(fontFamily) => $emit('updateSimilarFontFamily', fontFamily)"
+      @update-similar-canvas-size="(canvasSize) => $emit('updateSimilarCanvasSize', canvasSize)"
+      @update-similar-threshold="(threshold) => $emit('updateSimilarThreshold', threshold)"
+      @update-similar-width-match="(widthMatch) => $emit('updateSimilarWidthMatch', widthMatch)"
+      @update-similar-max-results="(maxResults) => $emit('updateSimilarMaxResults', maxResults)"
+      @start-similar-search="$emit('startSimilarSearch')"
+      @cancel-similar-search="$emit('cancelSimilarSearch')"
       @assign-history-char="(index) => $emit('assignHistoryChar', index)"
     />
     <section v-else class="panel-section panel-section--grow" :style="paletteDisplayStyle">

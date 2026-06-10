@@ -7,20 +7,35 @@ const emit = defineEmits<{
   loadDocument: [file: File];
   exportDocument: [];
   invertCanvasBackground: [];
+  scanUnicodeGlyphPages: [];
 }>();
 
+const props = defineProps<{
+  isUnicodeGlyphPageScanRunning: boolean;
+}>();
+
+const isDevMode = import.meta.env.DEV;
 const isFileMenuOpen = ref(false);
 const isImageMenuOpen = ref(false);
+const isDevMenuOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 function toggleFileMenu() {
   isFileMenuOpen.value = !isFileMenuOpen.value;
   isImageMenuOpen.value = false;
+  isDevMenuOpen.value = false;
 }
 
 function toggleImageMenu() {
   isImageMenuOpen.value = !isImageMenuOpen.value;
   isFileMenuOpen.value = false;
+  isDevMenuOpen.value = false;
+}
+
+function toggleDevMenu() {
+  isDevMenuOpen.value = !isDevMenuOpen.value;
+  isFileMenuOpen.value = false;
+  isImageMenuOpen.value = false;
 }
 
 function requestLoad() {
@@ -53,6 +68,11 @@ function requestInvertCanvasBackground() {
   emit("invertCanvasBackground");
   isImageMenuOpen.value = false;
 }
+
+function requestUnicodeGlyphPageScan() {
+  emit("scanUnicodeGlyphPages");
+  isDevMenuOpen.value = false;
+}
 </script>
 
 <template>
@@ -72,6 +92,14 @@ function requestInvertCanvasBackground() {
         <button type="button" @click="toggleImageMenu">Image</button>
         <div v-if="isImageMenuOpen" class="menu-dropdown">
           <button type="button" @click="requestInvertCanvasBackground">Invert BG</button>
+        </div>
+      </div>
+      <div v-if="isDevMode" class="menu-item">
+        <button type="button" @click="toggleDevMenu">Dev</button>
+        <div v-if="isDevMenuOpen" class="menu-dropdown">
+          <button type="button" :disabled="props.isUnicodeGlyphPageScanRunning" @click="requestUnicodeGlyphPageScan">
+            {{ props.isUnicodeGlyphPageScanRunning ? "Scanning..." : "Scan Unicode Pages (All)" }}
+          </button>
         </div>
       </div>
     </nav>

@@ -34,10 +34,12 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
 <template>
   <main class="aa-maker-shell" aria-label="AA Maker">
     <TopMenu
+      :is-unicode-glyph-page-scan-running="aaMaker.isUnicodeGlyphPageScanRunning.value"
       @save-document="openSaveDocumentModal"
       @load-document="aaMaker.loadDocument"
       @export-document="isExportDocumentModalOpen = true"
       @invert-canvas-background="aaMaker.invertCanvasBackground"
+      @scan-unicode-glyph-pages="aaMaker.scanAllUnicodeGlyphPages"
     />
     <Toolbox
       :tools="aaMaker.tools.value"
@@ -97,6 +99,14 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @keyboard-input="aaMaker.handleKeyboardInput"
       @update-unicode-query="aaMaker.updateUnicodeQuery"
       @update-unicode-scroll-offset="aaMaker.updateUnicodeScrollOffset"
+      @update-similar-query="aaMaker.updateSimilarQuery"
+      @update-similar-font-family="aaMaker.updateSimilarFontFamily"
+      @update-similar-canvas-size="aaMaker.updateSimilarCanvasSize"
+      @update-similar-threshold="aaMaker.updateSimilarThreshold"
+      @update-similar-width-match="aaMaker.updateSimilarWidthMatch"
+      @update-similar-max-results="aaMaker.updateSimilarMaxResults"
+      @start-similar-search="aaMaker.startSimilarSearch"
+      @cancel-similar-search="aaMaker.cancelSimilarSearch"
       @assign-history-char="aaMaker.assignHistoryChar"
       @select-layer="aaMaker.selectLayer"
       @toggle-layer-visible="aaMaker.toggleLayerVisible"

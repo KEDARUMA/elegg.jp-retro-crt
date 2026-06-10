@@ -562,7 +562,7 @@ button {
 
 .palette-code {
   max-width: 96px;
-  color: var(--aa-palette-fgdc, #bbbbbb);
+  color: #eeeeee;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -640,7 +640,8 @@ button {
 }
 
 .keyboard-palette,
-.unicode-palette {
+.unicode-palette,
+.similar-palette {
   padding: 8px;
 }
 
@@ -689,6 +690,72 @@ button {
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
+}
+
+.similar-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px;
+}
+
+.palette-action-button {
+  min-height: 24px;
+  padding: 0 7px;
+  border: 0;
+  background: #3a3a3a;
+  color: #eeeeee;
+  font: inherit;
+  font-size: 12px;
+}
+
+.palette-action-button:disabled {
+  color: #777777;
+}
+
+.similar-params {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.similar-param,
+.similar-check {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: #eeeeee;
+  font-size: 11px;
+}
+
+.similar-param--wide {
+  grid-column: 1 / -1;
+}
+
+.similar-check {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.similar-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  color: #eeeeee;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.similar-results {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  min-height: 128px;
+  max-height: 236px;
+  margin-top: 6px;
+  background: var(--aa-palette-canvas-color, #ffffff);
+  overflow: auto;
 }
 
 .stamp-list {

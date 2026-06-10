@@ -7,6 +7,7 @@ type ToolItem = {
   label: string;
   icon: string;
   implemented: boolean;
+  shortcut?: string;
 };
 
 defineProps<{
@@ -23,6 +24,10 @@ defineEmits<{
   openSelectedForegroundColorPicker: [];
   openSelectedBackgroundColorPicker: [];
 }>();
+
+function getToolTitle(tool: ToolItem) {
+  return tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label;
+}
 </script>
 
 <template>
@@ -35,8 +40,8 @@ defineEmits<{
         :class="{ 'is-selected': tool.id === activeTool }"
         type="button"
         :disabled="!tool.implemented"
-        :title="tool.implemented ? tool.label : `${tool.label} は未実装です`"
-        :aria-label="tool.label"
+        :title="tool.implemented ? getToolTitle(tool) : `${getToolTitle(tool)} は未実装です`"
+        :aria-label="getToolTitle(tool)"
         @click="$emit('selectTool', tool.id)"
       >
         <span class="tool-icon" aria-hidden="true" v-html="tool.icon"></span>

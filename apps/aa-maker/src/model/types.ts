@@ -71,7 +71,7 @@ export type HighlightOrigin = {
   cells: CellGrid;
 };
 
-export type Tool = "select" | "eyedropper" | "pen" | "eraser" | "text" | "stamp" | "range-color";
+export type Tool = "select" | "eyedropper" | "pen" | "eraser" | "text" | "stamp";
 
 export type ToolState = {
   activeTool: Tool;
@@ -83,7 +83,7 @@ export type ToolState = {
   zoom: number;
 };
 
-export type CharPalette = NormalCharPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette;
+export type CharPalette = NormalCharPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
 
 export type NormalCharPalette = {
   kind: "normal";
@@ -108,6 +108,27 @@ export type UnicodePalette = {
   kind: "unicode";
   query: string;
   scrollOffset: number;
+};
+
+export type SimilarPalette = {
+  kind: "similar";
+  query: string;
+  fontFamily: string;
+  canvasSize: 16 | 32;
+  threshold: number;
+  widthMatch: boolean;
+  maxResults: number;
+  results: {
+    char: string;
+    codePoint: number;
+    score: number;
+    width: 1 | 2;
+  }[];
+  isSearching: boolean;
+  status: string;
+  checkedPageCount: number;
+  totalPageCount: number;
+  checkedCodePointCount: number;
 };
 
 export type Stamp = MonoStamp | ColorStamp;

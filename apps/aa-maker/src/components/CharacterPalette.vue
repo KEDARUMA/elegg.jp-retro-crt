@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
 import { getCharWidth, getFirstGrapheme } from "../model/gridOperations";
+import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
 
 type NormalPalette = {
   kind: "normal";
@@ -35,7 +36,25 @@ type UnicodePalette = {
   scrollOffset: number;
 };
 
-type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette;
+type SimilarPalette = {
+  kind: "similar";
+  id: string;
+  name: string;
+  query: string;
+  fontFamily: string;
+  canvasSize: 16 | 32;
+  threshold: number;
+  widthMatch: boolean;
+  maxResults: number;
+  results: SimilarGlyphSearchResult[];
+  isSearching: boolean;
+  status: string;
+  checkedPageCount: number;
+  totalPageCount: number;
+  checkedCodePointCount: number;
+};
+
+type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
 
 const props = defineProps<{
   palettes: Palette[];
@@ -53,6 +72,14 @@ const emit = defineEmits<{
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
+  updateSimilarQuery: [query: string];
+  updateSimilarFontFamily: [fontFamily: string];
+  updateSimilarCanvasSize: [canvasSize: number];
+  updateSimilarThreshold: [threshold: number];
+  updateSimilarWidthMatch: [widthMatch: boolean];
+  updateSimilarMaxResults: [maxResults: number];
+  startSimilarSearch: [];
+  cancelSimilarSearch: [];
   assignHistoryChar: [index: number];
 }>();
 
@@ -92,6 +119,10 @@ const selectedCharacterLabel = computed(() => {
     return "";
   }
 
+  if (isByteCodePalette(props.activePalette)) {
+    return `${props.selectedChar}(${getPaletteCodeLabel(props.activePalette, props.selectedCode)})`;
+  }
+
   return `${props.selectedChar}(${getCodeLabel(props.selectedCode)})`;
 });
 const paletteDisplayStyle = computed(() => ({
@@ -109,10 +140,22 @@ function getPaletteCode(palette: NormalPalette, char: string, index: number) {
 
 function getCodeLabel(code: number, isByteCode = false) {
   if (isByteCode) {
-    return `0x${code.toString(16).toUpperCase().padStart(2, "0")}`;
+    return `CP437:${code.toString(16).toUpperCase().padStart(2, "0")}`;
   }
 
   return `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+function isByteCodePalette(palette: Palette): palette is NormalPalette {
+  return palette.kind === "normal" && typeof palette.startCode === "number";
+}
+
+function getPaletteCodeLabel(palette: NormalPalette, code: number) {
+  if (typeof palette.startCode === "number") {
+    return `${palette.name}:${code.toString(16).toUpperCase().padStart(2, "0")}`;
+  }
+
+  return getCodeLabel(code);
 }
 
 function getPaletteCharWidth(palette: NormalPalette, char: string): 1 | 2 {
@@ -129,6 +172,10 @@ function isWidePaletteChar(palette: NormalPalette, char: string) {
 
 function getUnicodePalette() {
   return props.activePalette.kind === "unicode" ? props.activePalette : { query: "", scrollOffset: 0 };
+}
+
+function getSimilarResultTitle(result: SimilarGlyphSearchResult) {
+  return `${getCodeLabel(result.codePoint)} score:${result.score}`;
 }
 
 function getUnicodeChar(code: number) {
@@ -230,7 +277,7 @@ function parseUnicodeQuery(query: string) {
         :class="{ 'is-selected': selectedChar === char, 'is-wide': isWidePaletteChar(activePalette, char) }"
         type="button"
         :data-code="getPaletteCode(activePalette, char, index)"
-        :title="getCodeLabel(getPaletteCode(activePalette, char, index), typeof activePalette.startCode === 'number')"
+        :title="getPaletteCodeLabel(activePalette, getPaletteCode(activePalette, char, index))"
         @click="$emit('selectChar', char, getPaletteCharWidth(activePalette, char), $event.shiftKey)"
       >
         <span class="palette-button-text">{{ char }}</span>
@@ -278,6 +325,97 @@ function parseUnicodeQuery(query: string) {
         @compositionend="handleKeyboardCompositionEnd(($event.target as HTMLInputElement).value)"
         @input="handleKeyboardInput(($event.target as HTMLInputElement).value)"
       />
+    </div>
+
+    <div v-else-if="activePalette.kind === 'similar'" class="similar-palette">
+      <div class="similar-search-row">
+        <input
+          class="palette-text-input"
+          :value="activePalette.query"
+          aria-label="Similar character search"
+          placeholder="Search"
+          :disabled="activePalette.isSearching"
+          @input="$emit('updateSimilarQuery', ($event.target as HTMLInputElement).value)"
+        />
+        <button class="palette-action-button" type="button" :disabled="activePalette.isSearching" @click="$emit('startSimilarSearch')">Search</button>
+        <button class="palette-action-button" type="button" :disabled="!activePalette.isSearching" @click="$emit('cancelSimilarSearch')">Cancel</button>
+      </div>
+      <div class="similar-params">
+        <label class="similar-param similar-param--wide">
+          <span>Font</span>
+          <input
+            class="palette-text-input"
+            :value="activePalette.fontFamily"
+            :disabled="activePalette.isSearching"
+            @input="$emit('updateSimilarFontFamily', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="similar-param">
+          <span>Size</span>
+          <select
+            class="palette-select"
+            :value="activePalette.canvasSize"
+            :disabled="activePalette.isSearching"
+            @change="$emit('updateSimilarCanvasSize', Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option :value="16">16</option>
+            <option :value="32">32</option>
+          </select>
+        </label>
+        <label class="similar-param">
+          <span>Threshold</span>
+          <input
+            class="palette-text-input"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            :value="activePalette.threshold"
+            :disabled="activePalette.isSearching"
+            @input="$emit('updateSimilarThreshold', Number(($event.target as HTMLInputElement).value))"
+          />
+        </label>
+        <label class="similar-param">
+          <span>Max</span>
+          <input
+            class="palette-text-input"
+            type="number"
+            min="1"
+            max="2048"
+            step="1"
+            :value="activePalette.maxResults"
+            :disabled="activePalette.isSearching"
+            @input="$emit('updateSimilarMaxResults', Number(($event.target as HTMLInputElement).value))"
+          />
+        </label>
+        <label class="similar-check">
+          <input
+            type="checkbox"
+            :checked="activePalette.widthMatch"
+            :disabled="activePalette.isSearching"
+            @change="$emit('updateSimilarWidthMatch', ($event.target as HTMLInputElement).checked)"
+          />
+          <span>Width</span>
+        </label>
+      </div>
+      <div class="similar-status">
+        <span>{{ activePalette.status }}</span>
+        <span>{{ activePalette.results.length }} hits</span>
+        <span>Scanned {{ activePalette.checkedPageCount }}/{{ activePalette.totalPageCount }} present pages</span>
+      </div>
+      <div class="similar-results" aria-label="Similar character results">
+        <button
+          v-for="result in activePalette.results"
+          :key="`${result.codePoint}-${result.score}`"
+          class="palette-button"
+          :class="{ 'is-selected': selectedChar === result.char, 'is-wide': result.width === 2 }"
+          type="button"
+          :title="getSimilarResultTitle(result)"
+          @click="$emit('selectChar', result.char, result.width, $event.shiftKey)"
+        >
+          <span class="palette-button-text">{{ result.char }}</span>
+        </button>
+      </div>
     </div>
 
     <div v-else class="unicode-palette">

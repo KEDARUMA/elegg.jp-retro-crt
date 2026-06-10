@@ -1,0 +1,334 @@
+{
+  "version": 1,
+  "source": "aa-maker-canvas-glyph-page-scan",
+  "pageSize": 256,
+  "firstPage": 0,
+  "pageCount": 4352,
+  "range": {
+    "start": 32,
+    "end": 1114111
+  },
+  "scan": {
+    "canvasSize": 16,
+    "font": "16px \"MS Gothic\", monospace",
+    "workerCount": 4,
+    "notdefFilter": true,
+    "startedAt": "2026-06-10T06:34:08.266Z",
+    "finishedAt": "2026-06-10T06:36:49.249Z",
+    "elapsedMs": 160987,
+    "checkedCodePointCount": 986194,
+    "presentPageCount": 527
+  },
+  "pageRuns": [
+    {
+      "startPage": 0,
+      "present": true,
+      "count": 216
+    },
+    {
+      "startPage": 216,
+      "present": false,
+      "count": 32
+    },
+    {
+      "startPage": 248,
+      "present": true,
+      "count": 23
+    },
+    {
+      "startPage": 271,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 272,
+      "present": true,
+      "count": 9
+    },
+    {
+      "startPage": 281,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 282,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 283,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 284,
+      "present": true,
+      "count": 2
+    },
+    {
+      "startPage": 286,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 287,
+      "present": true,
+      "count": 7
+    },
+    {
+      "startPage": 294,
+      "present": false,
+      "count": 10
+    },
+    {
+      "startPage": 304,
+      "present": true,
+      "count": 5
+    },
+    {
+      "startPage": 309,
+      "present": false,
+      "count": 51
+    },
+    {
+      "startPage": 360,
+      "present": true,
+      "count": 4
+    },
+    {
+      "startPage": 364,
+      "present": false,
+      "count": 3
+    },
+    {
+      "startPage": 367,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 368,
+      "present": false,
+      "count": 76
+    },
+    {
+      "startPage": 444,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 445,
+      "present": false,
+      "count": 20
+    },
+    {
+      "startPage": 465,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 466,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 467,
+      "present": true,
+      "count": 5
+    },
+    {
+      "startPage": 472,
+      "present": false,
+      "count": 8
+    },
+    {
+      "startPage": 480,
+      "present": true,
+      "count": 3
+    },
+    {
+      "startPage": 483,
+      "present": false,
+      "count": 5
+    },
+    {
+      "startPage": 488,
+      "present": true,
+      "count": 2
+    },
+    {
+      "startPage": 490,
+      "present": false,
+      "count": 4
+    },
+    {
+      "startPage": 494,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 495,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 496,
+      "present": true,
+      "count": 8
+    },
+    {
+      "startPage": 504,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 505,
+      "present": true,
+      "count": 2
+    },
+    {
+      "startPage": 507,
+      "present": false,
+      "count": 5
+    },
+    {
+      "startPage": 512,
+      "present": true,
+      "count": 172
+    },
+    {
+      "startPage": 684,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 685,
+      "present": true,
+      "count": 35
+    },
+    {
+      "startPage": 720,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 721,
+      "present": true,
+      "count": 5
+    },
+    {
+      "startPage": 726,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 727,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 728,
+      "present": false,
+      "count": 2
+    },
+    {
+      "startPage": 730,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 731,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 732,
+      "present": true,
+      "count": 3
+    },
+    {
+      "startPage": 735,
+      "present": false,
+      "count": 2
+    },
+    {
+      "startPage": 737,
+      "present": true,
+      "count": 6
+    },
+    {
+      "startPage": 743,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 744,
+      "present": true,
+      "count": 4
+    },
+    {
+      "startPage": 748,
+      "present": false,
+      "count": 12
+    },
+    {
+      "startPage": 760,
+      "present": true,
+      "count": 3
+    },
+    {
+      "startPage": 763,
+      "present": false,
+      "count": 8
+    },
+    {
+      "startPage": 771,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 772,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 773,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 774,
+      "present": false,
+      "count": 3
+    },
+    {
+      "startPage": 777,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 778,
+      "present": false,
+      "count": 1
+    },
+    {
+      "startPage": 779,
+      "present": true,
+      "count": 1
+    },
+    {
+      "startPage": 780,
+      "present": false,
+      "count": 2
+    },
+    {
+      "startPage": 782,
+      "present": true,
+      "count": 2
+    },
+    {
+      "startPage": 784,
+      "present": false,
+      "count": 3568
+    }
+  ]
+}
