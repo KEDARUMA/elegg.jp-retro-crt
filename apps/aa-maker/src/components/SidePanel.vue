@@ -5,6 +5,7 @@ import eyeClosedIcon from "../assets/icons/eye-closed.svg?raw";
 import eyeIcon from "../assets/icons/eye.svg?raw";
 import lockOpenIcon from "../assets/icons/lock-open.svg?raw";
 import lockIcon from "../assets/icons/lock.svg?raw";
+import plusIcon from "../assets/icons/plus.svg?raw";
 import newFileIcon from "../assets/icons/new-file.svg?raw";
 import trashIcon from "../assets/icons/trash.svg?raw";
 import CharacterPalette from "./CharacterPalette.vue";
@@ -116,6 +117,9 @@ const emit = defineEmits<{
   overwritePaletteCell: [index: number];
   selectStampSet: [stampSetId: string];
   selectStamp: [stampId: string];
+  insertStamp: [];
+  deleteStamp: [];
+  overwriteStamp: [stampId: string];
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
@@ -144,7 +148,6 @@ const editingLayerName = ref("");
 const isDeleteConfirmOpen = ref(false);
 const editingListKind = ref<"palette" | "stamp-set" | null>(null);
 const activeStampSetStamps = computed(() => props.stampSets.find((stampSet) => stampSet.id === props.activeStampSetId)?.stamps ?? []);
-const activeStampSetItemCount = computed(() => activeStampSetStamps.value.length);
 const paletteListEditorItems = computed(() =>
   props.palettes.map((palette) => ({
     id: palette.id,
@@ -217,6 +220,10 @@ function handleStampSetChange(event: Event) {
   if (event.target instanceof HTMLSelectElement) {
     emit("selectStampSet", event.target.value);
   }
+}
+
+function handleStampContextMenu(stampId: string) {
+  emit("overwriteStamp", stampId);
 }
 
 function openPaletteListEditor() {
@@ -293,7 +300,6 @@ function getStampCellStyle(cell: StampCell | null) {
             {{ stampSet.name }}
           </option>
         </select>
-        <span class="palette-code">{{ activeStampSetItemCount }} items</span>
         <button class="palette-edit-button" type="button" aria-label="Edit stamp sets" title="Edit stamp sets" @click="openStampSetListEditor">
           <span class="palette-edit-button-icon" aria-hidden="true" v-html="editIcon"></span>
         </button>
@@ -306,6 +312,7 @@ function getStampCellStyle(cell: StampCell | null) {
           :class="{ 'is-selected': stamp.id === activeStampId }"
           type="button"
           @click="$emit('selectStamp', stamp.id)"
+          @contextmenu.prevent="handleStampContextMenu(stamp.id)"
         >
           <span class="stamp-list-name">{{ stamp.name }}</span>
           <div class="stamp-list-preview" aria-hidden="true">
@@ -318,6 +325,21 @@ function getStampCellStyle(cell: StampCell | null) {
               >{{ getStampCellText(cell) }}</span>
             </div>
           </div>
+        </button>
+      </div>
+      <div class="palette-cell-actions" aria-label="Stamp actions">
+        <button class="palette-cell-action-button" type="button" aria-label="Add stamp" title="Add stamp" @click="$emit('insertStamp')">
+          <span class="palette-cell-action-icon" aria-hidden="true" v-html="plusIcon"></span>
+        </button>
+        <button
+          class="palette-cell-action-button"
+          type="button"
+          aria-label="Delete selected stamp"
+          title="Delete selected stamp"
+          :disabled="!activeStampId"
+          @click="$emit('deleteStamp')"
+        >
+          <span class="palette-cell-action-icon" aria-hidden="true" v-html="trashIcon"></span>
         </button>
       </div>
     </section>

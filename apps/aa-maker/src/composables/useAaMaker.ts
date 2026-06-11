@@ -14,7 +14,7 @@ import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
 import { parseStampMdsSources } from "../model/parseStampMds";
-import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, Tool } from "../model/types";
+import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, StampCell, Tool } from "../model/types";
 import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
 import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
 
@@ -988,6 +988,72 @@ export function useAaMaker() {
 
     activeStampId.value = stamp.id;
     placeStampAtCenter(stamp);
+  }
+
+  function insertStamp() {
+    const stampSet = activeStampSet.value;
+
+    if (!stampSet) {
+      return;
+    }
+
+    const selectedIndex = stampSet.stamps.findIndex((stamp) => stamp.id === activeStampId.value);
+    const insertIndex = selectedIndex < 0 ? stampSet.stamps.length : selectedIndex + 1;
+    const stampNumber = getNextStampNumber(stampSet);
+    const stampId = `${stampSet.id}-${String(stampNumber).padStart(3, "0")}`;
+    const stampName = getNextStampName(stampSet, stampNumber);
+    const stampKind = activeStamp.value?.kind ?? stampSet.stamps[0]?.kind ?? "mono";
+    const highlight = getRectHighlight();
+    const stamp = highlight ? createStampFromHighlight(stampKind, stampId, stampName, highlight) : createBlankStamp(stampKind, stampId, stampName);
+
+    stampSet.stamps.splice(insertIndex, 0, stamp);
+    activeStampSetId.value = stampSet.id;
+    activeStampId.value = stamp.id;
+    hasUnsavedDocumentChange.value = true;
+  }
+
+  function deleteStamp() {
+    const stampSet = activeStampSet.value;
+
+    if (!stampSet) {
+      return;
+    }
+
+    const selectedIndex = stampSet.stamps.findIndex((stamp) => stamp.id === activeStampId.value);
+
+    if (selectedIndex < 0) {
+      return;
+    }
+
+    stampSet.stamps.splice(selectedIndex, 1);
+    activeStampId.value = stampSet.stamps[Math.min(selectedIndex, stampSet.stamps.length - 1)]?.id ?? "";
+    hasUnsavedDocumentChange.value = true;
+  }
+
+  function overwriteStamp(stampId: string) {
+    const stampSet = activeStampSet.value;
+    const highlight = getRectHighlight();
+
+    if (!stampSet || !highlight) {
+      return;
+    }
+
+    const stamp = stampSet.stamps.find((candidate) => candidate.id === stampId);
+
+    if (!stamp) {
+      return;
+    }
+
+    const nextStamp = createStampFromHighlight(stamp.kind, stamp.id, stamp.name, highlight);
+
+    if (areSameStamp(stamp, nextStamp)) {
+      activeStampId.value = stamp.id;
+      return;
+    }
+
+    Object.assign(stamp, nextStamp);
+    activeStampId.value = stamp.id;
+    hasUnsavedDocumentChange.value = true;
   }
 
   function selectLayer(layerId: string) {
@@ -2695,6 +2761,70 @@ export function useAaMaker() {
     return layer.visible && !layer.locked;
   }
 
+  function createBlankStamp(kind: Stamp["kind"], id: string, name: string): Stamp {
+    return {
+      kind,
+      id,
+      name,
+      width: 1,
+      height: 1,
+      cells: [[null]],
+    };
+  }
+
+  function createStampFromHighlight(kind: Stamp["kind"], id: string, name: string, highlight: HighlightRect): Stamp {
+    const cells = createEmptyStampCells(highlight.width, highlight.height);
+
+    highlight.contents.forEach((row, rowIndex) => {
+      row.forEach((cell, columnIndex) => {
+        if (cell.kind !== "char") {
+          return;
+        }
+
+        cells[rowIndex][columnIndex] = {
+          char: cell.char,
+          width: cell.width,
+          fgc: cell.fgc,
+          bgc: cell.bgc,
+        };
+      });
+    });
+
+    return {
+      kind,
+      id,
+      name,
+      width: highlight.width,
+      height: highlight.height,
+      cells,
+    };
+  }
+
+  function createEmptyStampCells(width: number, height: number): (StampCell | null)[][] {
+    return Array.from({ length: height }, () => Array.from({ length: width }, () => null as StampCell | null));
+  }
+
+  function areSameStamp(previousStamp: Stamp, nextStamp: Stamp) {
+    return JSON.stringify(previousStamp) === JSON.stringify(nextStamp);
+  }
+
+  function getNextStampNumber(stampSet: StampSet) {
+    const numbers = stampSet.stamps
+      .map((stamp) => {
+        const match = stamp.id.match(/-(\d+)$/);
+
+        return match ? Number.parseInt(match[1], 10) : null;
+      })
+      .filter((value): value is number => value !== null && Number.isFinite(value));
+
+    return (numbers.length ? Math.max(...numbers) : 0) + 1;
+  }
+
+  function getNextStampName(stampSet: StampSet, number: number) {
+    const baseName = stampSet.name.trim() || "Stamp";
+    return `${baseName} ${String(number).padStart(3, "0")}`;
+  }
+
   return {
     activePalette,
     activePaletteId,
@@ -2756,6 +2886,9 @@ export function useAaMaker() {
     insertPaletteCell,
     deletePaletteCell,
     overwritePaletteCell,
+    insertStamp,
+    deleteStamp,
+    overwriteStamp,
     applyPaletteList,
     applyStampSetList,
     closeSelectedColorPicker,
