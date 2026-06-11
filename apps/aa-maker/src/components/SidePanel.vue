@@ -96,6 +96,7 @@ const props = defineProps<{
   activePaletteId: string;
   selectedChar: string | null;
   selectedCode: number | null;
+  selectedPaletteCellIndex: number | null;
   canvasColor: string;
   foregroundDefaultColor: string;
   info: InfoState;
@@ -110,6 +111,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectPalette: [paletteId: string];
   selectChar: [char: string, width: 1 | 2, fillEmptyOnly: boolean];
+  selectPaletteCell: [index: number];
+  insertPaletteCell: [];
+  deletePaletteCell: [];
+  overwritePaletteCell: [index: number];
   selectStampSet: [stampSetId: string];
   selectStamp: [stampId: string];
   keyboardInput: [value: string];
@@ -260,10 +265,15 @@ function getStampCellStyle(cell: StampCell | null) {
       :active-palette-id="activePaletteId"
       :selected-char="selectedChar"
       :selected-code="selectedCode"
+      :selected-palette-cell-index="selectedPaletteCellIndex"
       :canvas-color="canvasColor"
       :foreground-default-color="foregroundDefaultColor"
       @select-palette="(paletteId) => $emit('selectPalette', paletteId)"
       @select-char="(char, width, fillEmptyOnly) => $emit('selectChar', char, width, fillEmptyOnly)"
+      @select-palette-cell="(index) => $emit('selectPaletteCell', index)"
+      @insert-palette-cell="$emit('insertPaletteCell')"
+      @delete-palette-cell="$emit('deletePaletteCell')"
+      @overwrite-palette-cell="(index) => $emit('overwritePaletteCell', index)"
       @keyboard-input="(value) => $emit('keyboardInput', value)"
       @update-unicode-query="(query) => $emit('updateUnicodeQuery', query)"
       @update-unicode-scroll-offset="(scrollOffset) => $emit('updateUnicodeScrollOffset', scrollOffset)"

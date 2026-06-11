@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
 import editIcon from "../assets/icons/edit.svg?raw";
+import plusIcon from "../assets/icons/plus.svg?raw";
+import trashIcon from "../assets/icons/trash.svg?raw";
 import { getCharWidth, getFirstGrapheme } from "../model/gridOperations";
 import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
 
@@ -63,6 +65,7 @@ const props = defineProps<{
   activePaletteId: string;
   selectedChar: string | null;
   selectedCode: number | null;
+  selectedPaletteCellIndex: number | null;
   canvasColor: string;
   foregroundDefaultColor: string;
 }>();
@@ -70,6 +73,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectPalette: [paletteId: string];
   selectChar: [char: string, width: 1 | 2, fillEmptyOnly: boolean];
+  selectPaletteCell: [index: number];
+  insertPaletteCell: [];
+  deletePaletteCell: [];
+  overwritePaletteCell: [index: number];
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
@@ -188,6 +195,23 @@ function getUnicodeChar(code: number) {
   return String.fromCodePoint(code);
 }
 
+function handleNormalPaletteClick(index: number, char: string | null, event: MouseEvent) {
+  if (char === null) {
+    return;
+  }
+
+  emit("selectPaletteCell", index);
+  emit("selectChar", char, getPaletteCharWidth(props.activePalette as NormalPalette, char), event.shiftKey);
+}
+
+function handleNormalPaletteContextMenu(index: number, char: string | null) {
+  if (char === null) {
+    return;
+  }
+
+  emit("overwritePaletteCell", index);
+}
+
 function selectUnicodeChar(code: number, event: MouseEvent) {
   const char = getUnicodeChar(code);
 
@@ -281,14 +305,33 @@ function parseUnicodeQuery(query: string) {
         v-for="(char, index) in activePalette.chars"
         :key="`${activePalette.id}-${index}`"
         class="palette-button"
-        :class="{ 'is-selected': char !== null && selectedChar === char, 'is-wide': isWidePaletteChar(activePalette, char) }"
+        :class="{
+          'is-selected': index === selectedPaletteCellIndex || (selectedPaletteCellIndex === null && char !== null && selectedChar === char),
+          'is-wide': isWidePaletteChar(activePalette, char),
+        }"
         type="button"
         :disabled="char === null"
         :data-code="getPaletteCode(activePalette, char, index)"
         :title="char === null ? 'Empty' : getPaletteCodeLabel(activePalette, getPaletteCode(activePalette, char, index))"
-        @click="char !== null && $emit('selectChar', char, getPaletteCharWidth(activePalette, char), $event.shiftKey)"
+        @click="handleNormalPaletteClick(index, char, $event)"
+        @contextmenu.prevent="handleNormalPaletteContextMenu(index, char)"
       >
         <span class="palette-button-text">{{ char ?? "" }}</span>
+      </button>
+    </div>
+    <div v-if="activePalette.kind === 'normal' && activePalette.id !== 'cp437'" class="palette-cell-actions" aria-label="Character palette actions">
+      <button class="palette-cell-action-button" type="button" aria-label="Add empty character cell" title="Add empty character cell" @click="$emit('insertPaletteCell')">
+        <span class="palette-cell-action-icon" aria-hidden="true" v-html="plusIcon"></span>
+      </button>
+      <button
+        class="palette-cell-action-button"
+        type="button"
+        aria-label="Delete selected character cell"
+        title="Delete selected character cell"
+        :disabled="selectedPaletteCellIndex === null"
+        @click="$emit('deletePaletteCell')"
+      >
+        <span class="palette-cell-action-icon" aria-hidden="true" v-html="trashIcon"></span>
       </button>
     </div>
 

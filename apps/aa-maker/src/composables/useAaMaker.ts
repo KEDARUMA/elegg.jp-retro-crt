@@ -139,10 +139,15 @@ type EditableListItem = {
   name: string;
   protected?: boolean;
 };
+type LoadedPaletteChars = {
+  id: string;
+  chars: (string | null)[];
+};
 type LoadedAaMakerState = {
   document: AaDocument;
   palettes?: EditableListItem[];
   activePaletteId?: string;
+  paletteChars?: LoadedPaletteChars[];
   stampSets?: EditableListItem[];
   activeStampSetId?: string;
 };
@@ -246,6 +251,7 @@ export function useAaMaker() {
     },
   ]);
   const activePaletteId = ref(palettes[0]?.id ?? "");
+  const selectedPaletteCellIndex = ref<number | null>(null);
   const stampSets = reactive<StampSet[]>(initialStampSets.map((stampSet) => ({ ...stampSet, stamps: [...stampSet.stamps] })));
   const activeStampSetId = ref(stampSets[0]?.id ?? "");
   const activeStampId = ref("");
@@ -443,11 +449,11 @@ export function useAaMaker() {
 
     const index = activePalette.value.chars.indexOf(toolState.selectedChar);
 
-    if (index < 0) {
-      return null;
-    }
-
     if (typeof activePalette.value.startCode === "number") {
+      if (index < 0) {
+        return toolState.selectedChar.codePointAt(0) ?? null;
+      }
+
       return activePalette.value.startCode + index;
     }
 
@@ -615,12 +621,19 @@ export function useAaMaker() {
         return;
       }
 
+      resetNormalPaletteChars();
+      selectedPaletteCellIndex.value = null;
+
       if (loadedState.palettes) {
         applyPaletteList(loadedState.palettes);
 
         if (loadedState.activePaletteId && palettes.some((palette) => palette.id === loadedState.activePaletteId)) {
           activePaletteId.value = loadedState.activePaletteId;
         }
+      }
+
+      if (loadedState.paletteChars) {
+        applyPaletteChars(loadedState.paletteChars);
       }
 
       if (loadedState.stampSets) {
@@ -714,22 +727,152 @@ export function useAaMaker() {
       fillSelectionWithChar(char, width);
     }
 
+    if (activePalette.value.kind === "normal" && activePalette.value.id !== "cp437") {
+      const paletteIndex = activePalette.value.chars.indexOf(char);
+      selectedPaletteCellIndex.value = paletteIndex >= 0 ? paletteIndex : null;
+    } else {
+      selectedPaletteCellIndex.value = null;
+    }
+
     notifySelectedAppearanceChange(previousAppearance);
   }
 
   function selectPalette(paletteId: string) {
     activePaletteId.value = paletteId;
+    selectedPaletteCellIndex.value = null;
+  }
+
+  function selectPaletteCell(index: number) {
+    const palette = getEditableNormalPalette();
+
+    if (!palette || index < 0 || index >= palette.chars.length) {
+      return;
+    }
+
+    selectedPaletteCellIndex.value = index;
   }
 
   function createSavedAaMakerState() {
     return {
-      version: 1,
+      version: 2,
       document: cloneDocument(documentModel),
       palettes: createEditableListSnapshot(palettes),
       activePaletteId: activePaletteId.value,
+      paletteChars: palettes
+        .filter((palette): palette is NormalPalette => palette.kind === "normal")
+        .map((palette) => ({
+          id: palette.id,
+          chars: [...palette.chars],
+        })),
       stampSets: createEditableListSnapshot(stampSets),
       activeStampSetId: activeStampSetId.value,
     };
+  }
+
+  function getEditableNormalPalette() {
+    const palette = activePalette.value;
+
+    if (palette.kind !== "normal" || palette.id === "cp437") {
+      return null;
+    }
+
+    return palette;
+  }
+
+  function resetNormalPaletteChars() {
+    for (const palette of palettes) {
+      if (palette.kind !== "normal") {
+        continue;
+      }
+
+      const defaultNormalPalette = defaultNormalPaletteById.get(palette.id);
+
+      if (defaultNormalPalette) {
+        palette.chars = [...defaultNormalPalette.chars];
+        continue;
+      }
+
+      palette.chars = Array.from({ length: EMPTY_NORMAL_PALETTE_CELL_COUNT }, () => null);
+    }
+  }
+
+  function applyPaletteChars(items: LoadedPaletteChars[]) {
+    const paletteById = new Map(palettes.filter((palette): palette is NormalPalette => palette.kind === "normal").map((palette) => [palette.id, palette]));
+
+    for (const item of items) {
+      const palette = paletteById.get(item.id);
+
+      if (!palette) {
+        continue;
+      }
+
+      palette.chars = [...item.chars];
+    }
+  }
+
+  function insertPaletteCell() {
+    const palette = getEditableNormalPalette();
+
+    if (!palette) {
+      return;
+    }
+
+    const insertIndex = selectedPaletteCellIndex.value === null ? palette.chars.length : clamp(selectedPaletteCellIndex.value, 0, palette.chars.length);
+
+    palette.chars.splice(insertIndex, 0, "\u00a0");
+    selectedPaletteCellIndex.value = insertIndex;
+
+    hasUnsavedDocumentChange.value = true;
+  }
+
+  function deletePaletteCell() {
+    const palette = getEditableNormalPalette();
+    const selectedIndex = selectedPaletteCellIndex.value;
+
+    if (!palette || selectedIndex === null || selectedIndex < 0 || selectedIndex >= palette.chars.length) {
+      return;
+    }
+
+    palette.chars.splice(selectedIndex, 1);
+    selectedPaletteCellIndex.value = findNearestPaletteCellIndex(palette.chars, Math.min(selectedIndex, palette.chars.length - 1));
+    hasUnsavedDocumentChange.value = true;
+  }
+
+  function overwritePaletteCell(index: number) {
+    const palette = getEditableNormalPalette();
+
+    if (!palette || index < 0 || index >= palette.chars.length || toolState.selectedChar === null) {
+      return;
+    }
+
+    selectedPaletteCellIndex.value = index;
+
+    if (palette.chars[index] === toolState.selectedChar) {
+      return;
+    }
+
+    palette.chars[index] = toolState.selectedChar;
+    hasUnsavedDocumentChange.value = true;
+  }
+
+  function findNearestPaletteCellIndex(chars: (string | null)[], startIndex: number) {
+    if (chars.length === 0) {
+      return null;
+    }
+
+    for (let index = clamp(startIndex, 0, chars.length - 1); index < chars.length; index += 1) {
+      if (chars[index] !== null) {
+        return index;
+      }
+    }
+
+    for (let index = clamp(startIndex, 0, chars.length - 1) - 1; index >= 0; index -= 1) {
+      if (chars[index] !== null) {
+        return index;
+      }
+    }
+
+    return null;
   }
 
   function ensureProtectedPaletteItems(items: EditableListItem[]) {
@@ -752,6 +895,7 @@ export function useAaMaker() {
   function applyPaletteList(items: EditableListItem[]) {
     const nextItems = ensureProtectedPaletteItems(getUniqueEditableListItems(items));
     const existingPalettes = new Map(palettes.map((palette) => [palette.id, palette]));
+    const previousActivePaletteId = activePaletteId.value;
     const nextPalettes = nextItems.map((item) => {
       const existingPalette = existingPalettes.get(item.id);
 
@@ -777,6 +921,10 @@ export function useAaMaker() {
 
     if (!palettes.some((palette) => palette.id === activePaletteId.value)) {
       activePaletteId.value = palettes[0]?.id ?? "";
+    }
+
+    if (activePaletteId.value !== previousActivePaletteId) {
+      selectedPaletteCellIndex.value = null;
     }
 
     hasUnsavedDocumentChange.value = true;
@@ -2567,6 +2715,7 @@ export function useAaMaker() {
   return {
     activePalette,
     activePaletteId,
+    selectedPaletteCellIndex,
     activeStamp,
     activeStampId,
     activeStampSet,
@@ -2621,6 +2770,10 @@ export function useAaMaker() {
     scanAllUnicodeGlyphPages,
     selectPalette,
     selectPaletteChar,
+    selectPaletteCell,
+    insertPaletteCell,
+    deletePaletteCell,
+    overwritePaletteCell,
     applyPaletteList,
     applyStampSetList,
     closeSelectedColorPicker,
@@ -2996,15 +3149,16 @@ function normalizeLoadedAaMakerState(value: unknown): LoadedAaMakerState | null 
     };
   }
 
-  if (!isRecord(value) || value.version !== 1) {
+  if (!isRecord(value) || (value.version !== 1 && value.version !== 2)) {
     return null;
   }
 
   const loadedDocument = normalizeLoadedDocument(value.document);
   const loadedPalettes = value.palettes === undefined ? undefined : normalizeLoadedEditableList(value.palettes);
+  const loadedPaletteChars = value.paletteChars === undefined ? undefined : normalizeLoadedPaletteChars(value.paletteChars);
   const loadedStampSets = value.stampSets === undefined ? undefined : normalizeLoadedEditableList(value.stampSets);
 
-  if (!loadedDocument || loadedPalettes === null || loadedStampSets === null) {
+  if (!loadedDocument || loadedPalettes === null || loadedPaletteChars === null || loadedStampSets === null) {
     return null;
   }
 
@@ -3012,6 +3166,7 @@ function normalizeLoadedAaMakerState(value: unknown): LoadedAaMakerState | null 
     document: loadedDocument,
     palettes: loadedPalettes,
     activePaletteId: typeof value.activePaletteId === "string" ? value.activePaletteId : undefined,
+    paletteChars: loadedPaletteChars,
     stampSets: loadedStampSets,
     activeStampSetId: typeof value.activeStampSetId === "string" ? value.activeStampSetId : undefined,
   };
@@ -3043,6 +3198,45 @@ function normalizeLoadedEditableList(value: unknown): EditableListItem[] | null 
   }
 
   return getUniqueEditableListItems(items);
+}
+
+function normalizeLoadedPaletteChars(value: unknown): LoadedPaletteChars[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const items: LoadedPaletteChars[] = [];
+  const seenIds = new Set<string>();
+
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== "string" || !Array.isArray(item.chars)) {
+      return null;
+    }
+
+    const id = item.id.trim();
+
+    if (!id || seenIds.has(id)) {
+      continue;
+    }
+
+    const chars: (string | null)[] = [];
+
+    for (const char of item.chars) {
+      if (char !== null && typeof char !== "string") {
+        return null;
+      }
+
+      chars.push(char);
+    }
+
+    items.push({
+      id,
+      chars,
+    });
+    seenIds.add(id);
+  }
+
+  return items;
 }
 
 function normalizeLoadedDocument(value: unknown): AaDocument | null {
