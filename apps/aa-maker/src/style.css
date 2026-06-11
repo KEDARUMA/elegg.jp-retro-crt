@@ -35,8 +35,8 @@ button {
   grid-template-areas:
     "menu menu menu"
     "tools editor side"
-    "status status status";
-  grid-template-columns: 34px minmax(636px, 1fr) 237px;
+    "status status side";
+  grid-template-columns: 34px minmax(636px, 1fr) 253px;
   grid-template-rows: 26px minmax(0, 1fr) 26px;
   gap: 0;
   height: 100vh;
@@ -536,7 +536,7 @@ button {
   gap: 8px;
   min-width: 0;
   min-height: 0;
-  padding: 8px;
+  padding: 0;
   background: #303030;
   overflow: auto;
 }
@@ -1016,8 +1016,8 @@ button {
 }
 
 .side-panel > .panel-section:last-of-type {
-  flex: 0 0 auto;
-  min-height: 146px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .layer-actions button:disabled {
