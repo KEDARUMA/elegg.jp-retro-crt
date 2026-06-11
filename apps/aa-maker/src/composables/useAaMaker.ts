@@ -811,7 +811,7 @@ export function useAaMaker() {
       return;
     }
 
-    const insertIndex = selectedPaletteCellIndex.value === null ? palette.chars.length : clamp(selectedPaletteCellIndex.value, 0, palette.chars.length);
+    const insertIndex = selectedPaletteCellIndex.value === null ? palette.chars.length : clamp(selectedPaletteCellIndex.value + 1, 0, palette.chars.length);
 
     palette.chars.splice(insertIndex, 0, "\u00a0");
     selectedPaletteCellIndex.value = insertIndex;
