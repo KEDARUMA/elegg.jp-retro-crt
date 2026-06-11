@@ -21,7 +21,6 @@ type HistoryPalette = {
   name: string;
   columns: number;
   history: (string | null)[];
-  editableChars: (string | null)[];
 };
 
 type KeyboardInputPalette = {
@@ -88,7 +87,6 @@ const emit = defineEmits<{
   updateSimilarMaxResults: [maxResults: number];
   startSimilarSearch: [];
   cancelSimilarSearch: [];
-  assignHistoryChar: [index: number];
   editPaletteList: [];
 }>();
 
@@ -300,39 +298,41 @@ function parseUnicodeQuery(query: string) {
         <span class="palette-edit-button-icon" aria-hidden="true" v-html="editIcon"></span>
       </button>
     </label>
-    <div v-if="activePalette.kind === 'normal'" class="char-palette" aria-label="Character palette">
-      <button
-        v-for="(char, index) in activePalette.chars"
-        :key="`${activePalette.id}-${index}`"
-        class="palette-button"
-        :class="{
-          'is-selected': index === selectedPaletteCellIndex || (selectedPaletteCellIndex === null && char !== null && selectedChar === char),
-          'is-wide': isWidePaletteChar(activePalette, char),
-        }"
-        type="button"
-        :disabled="char === null"
-        :data-code="getPaletteCode(activePalette, char, index)"
-        :title="char === null ? 'Empty' : getPaletteCodeLabel(activePalette, getPaletteCode(activePalette, char, index))"
-        @click="handleNormalPaletteClick(index, char, $event)"
-        @contextmenu.prevent="handleNormalPaletteContextMenu(index, char)"
-      >
-        <span class="palette-button-text">{{ char ?? "" }}</span>
-      </button>
-    </div>
-    <div v-if="activePalette.kind === 'normal' && activePalette.id !== 'cp437'" class="palette-cell-actions" aria-label="Character palette actions">
-      <button class="palette-cell-action-button" type="button" aria-label="Add empty character cell" title="Add empty character cell" @click="$emit('insertPaletteCell')">
-        <span class="palette-cell-action-icon" aria-hidden="true" v-html="plusIcon"></span>
-      </button>
-      <button
-        class="palette-cell-action-button"
-        type="button"
-        aria-label="Delete selected character cell"
-        title="Delete selected character cell"
-        :disabled="selectedPaletteCellIndex === null"
-        @click="$emit('deletePaletteCell')"
-      >
-        <span class="palette-cell-action-icon" aria-hidden="true" v-html="trashIcon"></span>
-      </button>
+    <div v-if="activePalette.kind === 'normal'" class="normal-palette">
+      <div class="char-palette" aria-label="Character palette">
+        <button
+          v-for="(char, index) in activePalette.chars"
+          :key="`${activePalette.id}-${index}`"
+          class="palette-button"
+          :class="{
+            'is-selected': index === selectedPaletteCellIndex || (selectedPaletteCellIndex === null && char !== null && selectedChar === char),
+            'is-wide': isWidePaletteChar(activePalette, char),
+          }"
+          type="button"
+          :disabled="char === null"
+          :data-code="getPaletteCode(activePalette, char, index)"
+          :title="char === null ? 'Empty' : getPaletteCodeLabel(activePalette, getPaletteCode(activePalette, char, index))"
+          @click="handleNormalPaletteClick(index, char, $event)"
+          @contextmenu.prevent="handleNormalPaletteContextMenu(index, char)"
+        >
+          <span class="palette-button-text">{{ char ?? "" }}</span>
+        </button>
+      </div>
+      <div v-if="activePalette.id !== 'cp437'" class="palette-cell-actions" aria-label="Character palette actions">
+        <button class="palette-cell-action-button" type="button" aria-label="Add empty character cell" title="Add empty character cell" @click="$emit('insertPaletteCell')">
+          <span class="palette-cell-action-icon" aria-hidden="true" v-html="plusIcon"></span>
+        </button>
+        <button
+          class="palette-cell-action-button"
+          type="button"
+          aria-label="Delete selected character cell"
+          title="Delete selected character cell"
+          :disabled="selectedPaletteCellIndex === null"
+          @click="$emit('deletePaletteCell')"
+        >
+          <span class="palette-cell-action-icon" aria-hidden="true" v-html="trashIcon"></span>
+        </button>
+      </div>
     </div>
 
     <div v-else-if="activePalette.kind === 'history'" class="history-palette" aria-label="History palette">
@@ -346,21 +346,6 @@ function parseUnicodeQuery(query: string) {
           :disabled="char === null"
           :title="char ? getCodeLabel(char.codePointAt(0) ?? 0) : 'Empty'"
           @click="char && $emit('selectChar', char, getCharWidth(char), $event.shiftKey)"
-        >
-          <span class="palette-button-text">{{ char ?? "" }}</span>
-        </button>
-      </div>
-      <div class="history-palette-group" aria-label="Editable history cells">
-        <button
-          v-for="(char, index) in activePalette.editableChars"
-          :key="`history-editable-${index}`"
-          class="palette-button"
-          :class="{ 'is-selected': selectedChar === char, 'is-wide': char !== null && getCharWidth(char) === 2 }"
-          type="button"
-          :disabled="char === null"
-          :title="char ? getCodeLabel(char.codePointAt(0) ?? 0) : 'Empty'"
-          @click="char && $emit('selectChar', char, getCharWidth(char), $event.shiftKey)"
-          @contextmenu.prevent="$emit('assignHistoryChar', index)"
         >
           <span class="palette-button-text">{{ char ?? "" }}</span>
         </button>

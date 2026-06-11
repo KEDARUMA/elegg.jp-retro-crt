@@ -323,16 +323,13 @@ type NormalCharPalette = {
 type HistoryPalette = {
   kind: "history";
   history: string[];
-  editableCells: string[];
 };
 ```
 
 - 全体は `16x16`。
-- 上 `16x8` が選択履歴。
-- 下 `16x8` が通常パレット相当。
+- 全体が選択履歴。
 - キャラパレットクリックまたはスポイトで選択文字が変わった時に履歴更新する。
 - 同じキャラは連続追加しない。
-- 下半分は右クリックで現在の選択文字を登録できる。
 
 ### KeyboardInputPalette
 

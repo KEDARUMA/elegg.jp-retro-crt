@@ -96,7 +96,6 @@ export type NormalCharPalette = {
 export type HistoryPalette = {
   kind: "history";
   history: string[];
-  editableCells: string[];
 };
 
 export type KeyboardInputPalette = {

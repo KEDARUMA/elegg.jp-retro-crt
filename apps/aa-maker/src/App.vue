@@ -115,7 +115,6 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @update-similar-max-results="aaMaker.updateSimilarMaxResults"
       @start-similar-search="aaMaker.startSimilarSearch"
       @cancel-similar-search="aaMaker.cancelSimilarSearch"
-      @assign-history-char="aaMaker.assignHistoryChar"
       @select-layer="aaMaker.selectLayer"
       @toggle-layer-visible="aaMaker.toggleLayerVisible"
       @toggle-layer-locked="aaMaker.toggleLayerLocked"

@@ -29,7 +29,6 @@ type HistoryPalette = {
   name: string;
   columns: number;
   history: (string | null)[];
-  editableChars: (string | null)[];
 };
 
 type KeyboardInputPalette = {
@@ -128,7 +127,6 @@ const emit = defineEmits<{
   updateSimilarMaxResults: [maxResults: number];
   startSimilarSearch: [];
   cancelSimilarSearch: [];
-  assignHistoryChar: [index: number];
   selectLayer: [layerId: string];
   toggleLayerVisible: [layerId: string];
   toggleLayerLocked: [layerId: string];
@@ -285,7 +283,6 @@ function getStampCellStyle(cell: StampCell | null) {
       @update-similar-max-results="(maxResults) => $emit('updateSimilarMaxResults', maxResults)"
       @start-similar-search="$emit('startSimilarSearch')"
       @cancel-similar-search="$emit('cancelSimilarSearch')"
-      @assign-history-char="(index) => $emit('assignHistoryChar', index)"
       @edit-palette-list="openPaletteListEditor"
     />
     <section v-else class="panel-section panel-section--grow" :style="paletteDisplayStyle">

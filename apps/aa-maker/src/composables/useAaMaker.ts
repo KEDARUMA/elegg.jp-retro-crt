@@ -33,7 +33,6 @@ type HistoryPalette = {
   name: string;
   columns: number;
   history: (string | null)[];
-  editableChars: (string | null)[];
 };
 
 type KeyboardInputPalette = {
@@ -200,7 +199,6 @@ const colorSchemes: ColorScheme[] = [
 
 type StoredHistoryPalette = {
   history?: unknown;
-  editableChars?: unknown;
 };
 
 export function useAaMaker() {
@@ -217,7 +215,6 @@ export function useAaMaker() {
       name: "History",
       columns: 16,
       history: storedHistory.history,
-      editableChars: storedHistory.editableChars,
     },
     {
       kind: "keyboard-input",
@@ -727,10 +724,7 @@ export function useAaMaker() {
       fillSelectionWithChar(char, width);
     }
 
-    if (activePalette.value.kind === "normal" && activePalette.value.id !== "cp437") {
-      const paletteIndex = activePalette.value.chars.indexOf(char);
-      selectedPaletteCellIndex.value = paletteIndex >= 0 ? paletteIndex : null;
-    } else {
+    if (activePalette.value.kind !== "normal" || activePalette.value.id === "cp437") {
       selectedPaletteCellIndex.value = null;
     }
 
@@ -1378,17 +1372,6 @@ export function useAaMaker() {
       palette.isSearching = false;
       palette.status = "Stopped";
     }
-  }
-
-  function assignHistoryChar(index: number) {
-    const palette = getHistoryPalette();
-
-    if (!palette || index < 0 || index >= palette.editableChars.length || toolState.selectedChar === null) {
-      return;
-    }
-
-    palette.editableChars[index] = toolState.selectedChar;
-    saveHistoryPalette(palette);
   }
 
   function handleCellEnter(x: number, y: number) {
@@ -2236,7 +2219,7 @@ export function useAaMaker() {
     toolState.selectedChar = char;
     toolState.selectedCharWidth = width;
 
-    if (shouldUpdateHistory && char !== null) {
+    if (shouldUpdateHistory && char !== null && char !== NBSP) {
       pushHistoryChar(char);
     }
   }
@@ -2758,7 +2741,6 @@ export function useAaMaker() {
     handleHighlightMove,
     handleKeyboardInput,
     invertCanvasBackground,
-    assignHistoryChar,
     addLayer,
     clearSelectionColors,
     closeSelectionContextMenu,
@@ -3407,12 +3389,9 @@ function getUnicodeCodeLabel(char: string) {
 }
 
 function loadStoredHistoryPalette() {
-  const fallbackEditableChars = getInitialEditableHistoryChars();
-
   if (typeof localStorage === "undefined") {
     return {
       history: createEmptyHistoryChars(),
-      editableChars: fallbackEditableChars,
     };
   }
 
@@ -3422,7 +3401,6 @@ function loadStoredHistoryPalette() {
     if (!rawValue) {
       return {
         history: createEmptyHistoryChars(),
-        editableChars: fallbackEditableChars,
       };
     }
 
@@ -3430,12 +3408,10 @@ function loadStoredHistoryPalette() {
 
     return {
       history: normalizeHistoryChars(parsedValue.history, createEmptyHistoryChars()),
-      editableChars: normalizeHistoryChars(parsedValue.editableChars, fallbackEditableChars),
     };
   } catch {
     return {
       history: createEmptyHistoryChars(),
-      editableChars: fallbackEditableChars,
     };
   }
 }
@@ -3449,18 +3425,12 @@ function saveHistoryPalette(palette: HistoryPalette) {
     HISTORY_STORAGE_KEY,
     JSON.stringify({
       history: palette.history,
-      editableChars: palette.editableChars,
     }),
   );
 }
 
 function createEmptyHistoryChars() {
   return Array.from({ length: HISTORY_CELL_COUNT }, () => null);
-}
-
-function getInitialEditableHistoryChars() {
-  const firstPalette = charPalettes[0] as { chars?: string[] } | undefined;
-  return normalizeHistoryChars(firstPalette?.chars, createEmptyHistoryChars());
 }
 
 function normalizeHistoryChars(value: unknown, fallback: (string | null)[]) {
