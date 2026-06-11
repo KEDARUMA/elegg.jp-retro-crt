@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
+import editIcon from "../assets/icons/edit.svg?raw";
 import { getCharWidth, getFirstGrapheme } from "../model/gridOperations";
 import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
 
@@ -9,7 +10,7 @@ type NormalPalette = {
   name: string;
   columns?: number;
   startCode?: number;
-  chars: string[];
+  chars: (string | null)[];
 };
 
 type HistoryPalette = {
@@ -81,6 +82,7 @@ const emit = defineEmits<{
   startSimilarSearch: [];
   cancelSimilarSearch: [];
   assignHistoryChar: [index: number];
+  editPaletteList: [];
 }>();
 
 const UNICODE_MIN_CODE = 0x20;
@@ -130,12 +132,12 @@ const paletteDisplayStyle = computed(() => ({
   "--aa-palette-fgdc": `#${props.foregroundDefaultColor}`,
 }));
 
-function getPaletteCode(palette: NormalPalette, char: string, index: number) {
+function getPaletteCode(palette: NormalPalette, char: string | null, index: number) {
   if (typeof palette.startCode === "number") {
     return palette.startCode + index;
   }
 
-  return char.codePointAt(0) ?? 0;
+  return char?.codePointAt(0) ?? 0;
 }
 
 function getCodeLabel(code: number, isByteCode = false) {
@@ -158,16 +160,16 @@ function getPaletteCodeLabel(palette: NormalPalette, code: number) {
   return getCodeLabel(code);
 }
 
-function getPaletteCharWidth(palette: NormalPalette, char: string): 1 | 2 {
-  if (typeof palette.startCode === "number") {
+function getPaletteCharWidth(palette: NormalPalette, char: string | null): 1 | 2 {
+  if (typeof palette.startCode === "number" || char === null) {
     return 1;
   }
 
   return getCharWidth(char);
 }
 
-function isWidePaletteChar(palette: NormalPalette, char: string) {
-  return getPaletteCharWidth(palette, char) === 2;
+function isWidePaletteChar(palette: NormalPalette, char: string | null) {
+  return char !== null && getPaletteCharWidth(palette, char) === 2;
 }
 
 function getUnicodePalette() {
@@ -255,7 +257,10 @@ function parseUnicodeQuery(query: string) {
 
 <template>
   <section class="panel-section" :style="paletteDisplayStyle">
-    <h2>Character Palette</h2>
+    <h2 class="character-palette-title">
+      <span class="character-palette-name">Character Palette</span>
+      <span v-if="selectedCharacterLabel" class="character-palette-selection">{{ selectedCharacterLabel }}</span>
+    </h2>
     <label class="palette-select-label">
       <select
         class="palette-select"
@@ -267,20 +272,23 @@ function parseUnicodeQuery(query: string) {
           {{ palette.name }}
         </option>
       </select>
-      <span class="palette-code">{{ selectedCharacterLabel }}</span>
+      <button class="palette-edit-button" type="button" aria-label="Edit character palettes" title="Edit character palettes" @click="$emit('editPaletteList')">
+        <span class="palette-edit-button-icon" aria-hidden="true" v-html="editIcon"></span>
+      </button>
     </label>
     <div v-if="activePalette.kind === 'normal'" class="char-palette" aria-label="Character palette">
       <button
         v-for="(char, index) in activePalette.chars"
         :key="`${activePalette.id}-${index}`"
         class="palette-button"
-        :class="{ 'is-selected': selectedChar === char, 'is-wide': isWidePaletteChar(activePalette, char) }"
+        :class="{ 'is-selected': char !== null && selectedChar === char, 'is-wide': isWidePaletteChar(activePalette, char) }"
         type="button"
+        :disabled="char === null"
         :data-code="getPaletteCode(activePalette, char, index)"
-        :title="getPaletteCodeLabel(activePalette, getPaletteCode(activePalette, char, index))"
-        @click="$emit('selectChar', char, getPaletteCharWidth(activePalette, char), $event.shiftKey)"
+        :title="char === null ? 'Empty' : getPaletteCodeLabel(activePalette, getPaletteCode(activePalette, char, index))"
+        @click="char !== null && $emit('selectChar', char, getPaletteCharWidth(activePalette, char), $event.shiftKey)"
       >
-        <span class="palette-button-text">{{ char }}</span>
+        <span class="palette-button-text">{{ char ?? "" }}</span>
       </button>
     </div>
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
+import editIcon from "../assets/icons/edit.svg?raw";
 import eyeClosedIcon from "../assets/icons/eye-closed.svg?raw";
 import eyeIcon from "../assets/icons/eye.svg?raw";
 import lockOpenIcon from "../assets/icons/lock-open.svg?raw";
@@ -8,6 +9,7 @@ import newFileIcon from "../assets/icons/new-file.svg?raw";
 import trashIcon from "../assets/icons/trash.svg?raw";
 import CharacterPalette from "./CharacterPalette.vue";
 import ConfirmModal from "./ConfirmModal.vue";
+import EditableListModal from "./EditableListModal.vue";
 import InfoPanel from "./InfoPanel.vue";
 import type { Layer, Stamp, StampCell, Tool } from "../model/types";
 import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
@@ -18,7 +20,7 @@ type NormalPalette = {
   name: string;
   columns?: number;
   startCode?: number;
-  chars: string[];
+  chars: (string | null)[];
 };
 
 type HistoryPalette = {
@@ -69,6 +71,12 @@ type StampSet = {
   id: string;
   name: string;
   stamps: Stamp[];
+};
+
+type EditableListItem = {
+  id: string;
+  name: string;
+  protected?: boolean;
 };
 
 type InfoState = {
@@ -123,13 +131,30 @@ const emit = defineEmits<{
   renameLayer: [layerId: string, name: string];
   addLayer: [];
   deleteActiveLayer: [];
+  applyPaletteList: [items: EditableListItem[]];
+  applyStampSetList: [items: EditableListItem[]];
 }>();
 
+const PROTECTED_PALETTE_IDS = new Set(["cp437", "history", "keyboard-input", "unicode", "similar"]);
 const editingLayerId = ref<string | null>(null);
 const editingLayerName = ref("");
 const isDeleteConfirmOpen = ref(false);
+const editingListKind = ref<"palette" | "stamp-set" | null>(null);
 const activeStampSetStamps = computed(() => props.stampSets.find((stampSet) => stampSet.id === props.activeStampSetId)?.stamps ?? []);
 const activeStampSetItemCount = computed(() => activeStampSetStamps.value.length);
+const paletteListEditorItems = computed(() =>
+  props.palettes.map((palette) => ({
+    id: palette.id,
+    name: palette.name,
+    protected: PROTECTED_PALETTE_IDS.has(palette.id),
+  })),
+);
+const stampSetListEditorItems = computed(() =>
+  props.stampSets.map((stampSet) => ({
+    id: stampSet.id,
+    name: stampSet.name,
+  })),
+);
 const paletteDisplayStyle = computed(() => ({
   "--aa-palette-canvas-color": `#${props.canvasColor}`,
   "--aa-palette-fgdc": `#${props.foregroundDefaultColor}`,
@@ -191,6 +216,28 @@ function handleStampSetChange(event: Event) {
   }
 }
 
+function openPaletteListEditor() {
+  editingListKind.value = "palette";
+}
+
+function openStampSetListEditor() {
+  editingListKind.value = "stamp-set";
+}
+
+function closeListEditor() {
+  editingListKind.value = null;
+}
+
+function applyPaletteList(items: EditableListItem[]) {
+  emit("applyPaletteList", items);
+  closeListEditor();
+}
+
+function applyStampSetList(items: EditableListItem[]) {
+  emit("applyStampSetList", items);
+  closeListEditor();
+}
+
 function getStampCellText(cell: StampCell | null) {
   return cell?.char === " " || !cell ? "\u00a0" : cell.char;
 }
@@ -229,6 +276,7 @@ function getStampCellStyle(cell: StampCell | null) {
       @start-similar-search="$emit('startSimilarSearch')"
       @cancel-similar-search="$emit('cancelSimilarSearch')"
       @assign-history-char="(index) => $emit('assignHistoryChar', index)"
+      @edit-palette-list="openPaletteListEditor"
     />
     <section v-else class="panel-section panel-section--grow" :style="paletteDisplayStyle">
       <h2>Stamp</h2>
@@ -239,6 +287,9 @@ function getStampCellStyle(cell: StampCell | null) {
           </option>
         </select>
         <span class="palette-code">{{ activeStampSetItemCount }} items</span>
+        <button class="palette-edit-button" type="button" aria-label="Edit stamp sets" title="Edit stamp sets" @click="openStampSetListEditor">
+          <span class="palette-edit-button-icon" aria-hidden="true" v-html="editIcon"></span>
+        </button>
       </label>
       <div class="stamp-list">
         <button
@@ -308,5 +359,23 @@ function getStampCellStyle(cell: StampCell | null) {
     </section>
 
     <ConfirmModal v-if="isDeleteConfirmOpen" message="Delete this layer?" @confirm="confirmDeleteActiveLayer" @cancel="cancelDeleteActiveLayer" />
+    <EditableListModal
+      v-if="editingListKind === 'palette'"
+      title="Edit Character Palettes"
+      :items="paletteListEditorItems"
+      :active-item-id="activePaletteId"
+      new-item-label="Palette"
+      @apply="applyPaletteList"
+      @cancel="closeListEditor"
+    />
+    <EditableListModal
+      v-if="editingListKind === 'stamp-set'"
+      title="Edit Stamp Sets"
+      :items="stampSetListEditorItems"
+      :active-item-id="activeStampSetId"
+      new-item-label="Stamp Set"
+      @apply="applyStampSetList"
+      @cancel="closeListEditor"
+    />
   </aside>
 </template>

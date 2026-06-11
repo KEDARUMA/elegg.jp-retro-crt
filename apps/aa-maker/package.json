@@ -8,10 +8,12 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "sortablejs": "^1.15.7",
     "string-width": "^8.2.1",
     "vue": "^3.5.35"
   },
   "devDependencies": {
+    "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^6.0.7",
     "vite": "latest"
   }

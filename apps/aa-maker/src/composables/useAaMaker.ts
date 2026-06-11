@@ -24,7 +24,7 @@ type NormalPalette = {
   name: string;
   columns?: number;
   startCode?: number;
-  chars: string[];
+  chars: (string | null)[];
 };
 
 type HistoryPalette = {
@@ -134,12 +134,26 @@ type SelectedAppearanceSnapshot = {
   fgc: Color;
   bgc: Color;
 };
+type EditableListItem = {
+  id: string;
+  name: string;
+  protected?: boolean;
+};
+type LoadedAaMakerState = {
+  document: AaDocument;
+  palettes?: EditableListItem[];
+  activePaletteId?: string;
+  stampSets?: EditableListItem[];
+  activeStampSetId?: string;
+};
 
 const GRID_COLUMNS = 80;
 const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
+const EMPTY_NORMAL_PALETTE_CELL_COUNT = 256;
 const UNDO_HISTORY_LIMIT = 100;
 const HISTORY_STORAGE_KEY = "aa-maker.char-palette.history.v1";
+const PROTECTED_PALETTE_IDS = new Set(["cp437", "history", "keyboard-input", "unicode", "similar"]);
 const TOOL_CURSOR_OVERLAY_OFFSET_X = 11;
 const TOOL_CURSOR_OVERLAY_OFFSET_Y = 25;
 const TOOL_CURSOR_OVERLAY_SIZE = 24;
@@ -186,6 +200,9 @@ type StoredHistoryPalette = {
 
 export function useAaMaker() {
   const normalPalettes = (charPalettes as Omit<NormalPalette, "kind">[]).map((palette) => ({ ...palette, kind: "normal" as const }));
+  const defaultNormalPaletteById = new Map(normalPalettes.map((palette) => [palette.id, { ...palette, chars: [...palette.chars] }]));
+  const initialStampSets = createStampSets(parseStampMdsSources(stampSources));
+  const defaultStampSetById = new Map(initialStampSets.map((stampSet) => [stampSet.id, { ...stampSet, stamps: [...stampSet.stamps] }]));
   const storedHistory = loadStoredHistoryPalette();
   const palettes = reactive<Palette[]>([
     ...normalPalettes,
@@ -229,7 +246,7 @@ export function useAaMaker() {
     },
   ]);
   const activePaletteId = ref(palettes[0]?.id ?? "");
-  const stampSets = createStampSets(parseStampMdsSources(stampSources));
+  const stampSets = reactive<StampSet[]>(initialStampSets.map((stampSet) => ({ ...stampSet, stamps: [...stampSet.stamps] })));
   const activeStampSetId = ref(stampSets[0]?.id ?? "");
   const activeStampId = ref("");
   const documentModel = reactive(createEmptyDocument());
@@ -583,7 +600,7 @@ export function useAaMaker() {
   function saveDocument(name: string) {
     const trimmedName = name.trim() || DEFAULT_DOCUMENT_NAME;
     documentModel.name = trimmedName;
-    downloadTextFile(`${toSafeJsonFilename(trimmedName)}.json`, JSON.stringify(documentModel, null, 2), "application/json");
+    downloadTextFile(`${toSafeJsonFilename(trimmedName)}.json`, JSON.stringify(createSavedAaMakerState(), null, 2), "application/json");
     hasUnsavedDocumentChange.value = false;
   }
 
@@ -591,14 +608,30 @@ export function useAaMaker() {
     try {
       const rawText = await file.text();
       const parsedValue = JSON.parse(rawText) as unknown;
-      const loadedDocument = normalizeLoadedDocument(parsedValue);
+      const loadedState = normalizeLoadedAaMakerState(parsedValue);
 
-      if (!loadedDocument) {
+      if (!loadedState) {
         window.alert("Load failed: invalid AA Maker JSON.");
         return;
       }
 
-      Object.assign(documentModel, loadedDocument);
+      if (loadedState.palettes) {
+        applyPaletteList(loadedState.palettes);
+
+        if (loadedState.activePaletteId && palettes.some((palette) => palette.id === loadedState.activePaletteId)) {
+          activePaletteId.value = loadedState.activePaletteId;
+        }
+      }
+
+      if (loadedState.stampSets) {
+        applyStampSetList(loadedState.stampSets);
+
+        if (loadedState.activeStampSetId && stampSets.some((stampSet) => stampSet.id === loadedState.activeStampSetId)) {
+          activeStampSetId.value = loadedState.activeStampSetId;
+        }
+      }
+
+      Object.assign(documentModel, loadedState.document);
       toolState.highlight = { kind: "none" };
       draftSelection.value = null;
       cursorPosition.value = null;
@@ -688,6 +721,67 @@ export function useAaMaker() {
     activePaletteId.value = paletteId;
   }
 
+  function createSavedAaMakerState() {
+    return {
+      version: 1,
+      document: cloneDocument(documentModel),
+      palettes: createEditableListSnapshot(palettes),
+      activePaletteId: activePaletteId.value,
+      stampSets: createEditableListSnapshot(stampSets),
+      activeStampSetId: activeStampSetId.value,
+    };
+  }
+
+  function ensureProtectedPaletteItems(items: EditableListItem[]) {
+    const nextItems = [...items];
+    const itemIds = new Set(nextItems.map((item) => item.id));
+
+    for (const palette of palettes) {
+      if (PROTECTED_PALETTE_IDS.has(palette.id) && !itemIds.has(palette.id)) {
+        nextItems.push({
+          id: palette.id,
+          name: palette.name,
+          protected: true,
+        });
+      }
+    }
+
+    return nextItems;
+  }
+
+  function applyPaletteList(items: EditableListItem[]) {
+    const nextItems = ensureProtectedPaletteItems(getUniqueEditableListItems(items));
+    const existingPalettes = new Map(palettes.map((palette) => [palette.id, palette]));
+    const nextPalettes = nextItems.map((item) => {
+      const existingPalette = existingPalettes.get(item.id);
+
+      if (existingPalette) {
+        existingPalette.name = getEditableListItemName(item.name, existingPalette.name);
+        return existingPalette;
+      }
+
+      const defaultNormalPalette = defaultNormalPaletteById.get(item.id);
+
+      if (defaultNormalPalette) {
+        return {
+          ...defaultNormalPalette,
+          name: getEditableListItemName(item.name, defaultNormalPalette.name),
+          chars: [...defaultNormalPalette.chars],
+        };
+      }
+
+      return createEmptyNormalPalette(item.id, item.name);
+    });
+
+    palettes.splice(0, palettes.length, ...nextPalettes);
+
+    if (!palettes.some((palette) => palette.id === activePaletteId.value)) {
+      activePaletteId.value = palettes[0]?.id ?? "";
+    }
+
+    hasUnsavedDocumentChange.value = true;
+  }
+
   function selectStampSet(stampSetId: string) {
     const stampSet = stampSets.find((candidate) => candidate.id === stampSetId);
 
@@ -697,6 +791,50 @@ export function useAaMaker() {
 
     activeStampSetId.value = stampSet.id;
     activeStampId.value = "";
+  }
+
+  function applyStampSetList(items: EditableListItem[]) {
+    const nextItems = getUniqueEditableListItems(items);
+    const existingStampSets = new Map(stampSets.map((stampSet) => [stampSet.id, stampSet]));
+    const nextStampSets = nextItems.map((item) => {
+      const existingStampSet = existingStampSets.get(item.id);
+
+      if (existingStampSet) {
+        existingStampSet.name = getEditableListItemName(item.name, existingStampSet.name);
+        return existingStampSet;
+      }
+
+      const defaultStampSet = defaultStampSetById.get(item.id);
+
+      if (defaultStampSet) {
+        return {
+          ...defaultStampSet,
+          name: getEditableListItemName(item.name, defaultStampSet.name),
+          stamps: [...defaultStampSet.stamps],
+        };
+      }
+
+      return {
+        id: item.id,
+        name: getEditableListItemName(item.name, "Stamp Set"),
+        stamps: [],
+      };
+    });
+
+    stampSets.splice(0, stampSets.length, ...nextStampSets);
+
+    if (!stampSets.some((stampSet) => stampSet.id === activeStampSetId.value)) {
+      activeStampSetId.value = stampSets[0]?.id ?? "";
+      activeStampId.value = "";
+      hasUnsavedDocumentChange.value = true;
+      return;
+    }
+
+    if (!activeStampSet.value?.stamps.some((stamp) => stamp.id === activeStampId.value)) {
+      activeStampId.value = "";
+    }
+
+    hasUnsavedDocumentChange.value = true;
   }
 
   function selectStamp(stampId: string) {
@@ -2483,6 +2621,8 @@ export function useAaMaker() {
     scanAllUnicodeGlyphPages,
     selectPalette,
     selectPaletteChar,
+    applyPaletteList,
+    applyStampSetList,
     closeSelectedColorPicker,
     closeTextEditor,
     openSelectionBGCColorPicker,
@@ -2525,6 +2665,49 @@ function cloneDocument(documentValue: AaDocument): AaDocument {
 
 function cloneHighlight(highlight: Highlight): Highlight {
   return JSON.parse(JSON.stringify(highlight)) as Highlight;
+}
+
+function createEditableListSnapshot(items: { id: string; name: string }[]): EditableListItem[] {
+  return items.map((item) => ({
+    id: item.id,
+    name: item.name,
+  }));
+}
+
+function getUniqueEditableListItems(items: EditableListItem[]) {
+  const seenIds = new Set<string>();
+  const uniqueItems: EditableListItem[] = [];
+
+  for (const item of items) {
+    const id = item.id.trim();
+
+    if (!id || seenIds.has(id)) {
+      continue;
+    }
+
+    uniqueItems.push({
+      id,
+      name: item.name.trim(),
+      protected: item.protected,
+    });
+    seenIds.add(id);
+  }
+
+  return uniqueItems;
+}
+
+function getEditableListItemName(name: string, fallback: string) {
+  return name.trim() || fallback;
+}
+
+function createEmptyNormalPalette(id: string, name: string): NormalPalette {
+  return {
+    kind: "normal",
+    id,
+    name: getEditableListItemName(name, "Palette"),
+    columns: 16,
+    chars: Array.from({ length: EMPTY_NORMAL_PALETTE_CELL_COUNT }, () => null),
+  };
 }
 
 function getContextMenuPosition(x: number, y: number) {
@@ -2802,6 +2985,64 @@ function toSafeJsonFilename(name: string) {
       .replace(/\.+$/g, "")
       .replace(/^-+|-+$/g, "") || DEFAULT_DOCUMENT_NAME
   );
+}
+
+function normalizeLoadedAaMakerState(value: unknown): LoadedAaMakerState | null {
+  const legacyDocument = normalizeLoadedDocument(value);
+
+  if (legacyDocument) {
+    return {
+      document: legacyDocument,
+    };
+  }
+
+  if (!isRecord(value) || value.version !== 1) {
+    return null;
+  }
+
+  const loadedDocument = normalizeLoadedDocument(value.document);
+  const loadedPalettes = value.palettes === undefined ? undefined : normalizeLoadedEditableList(value.palettes);
+  const loadedStampSets = value.stampSets === undefined ? undefined : normalizeLoadedEditableList(value.stampSets);
+
+  if (!loadedDocument || loadedPalettes === null || loadedStampSets === null) {
+    return null;
+  }
+
+  return {
+    document: loadedDocument,
+    palettes: loadedPalettes,
+    activePaletteId: typeof value.activePaletteId === "string" ? value.activePaletteId : undefined,
+    stampSets: loadedStampSets,
+    activeStampSetId: typeof value.activeStampSetId === "string" ? value.activeStampSetId : undefined,
+  };
+}
+
+function normalizeLoadedEditableList(value: unknown): EditableListItem[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const items: EditableListItem[] = [];
+
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
+      return null;
+    }
+
+    const id = item.id.trim();
+
+    if (!id) {
+      return null;
+    }
+
+    items.push({
+      id,
+      name: item.name.trim(),
+      protected: typeof item.protected === "boolean" ? item.protected : undefined,
+    });
+  }
+
+  return getUniqueEditableListItems(items);
 }
 
 function normalizeLoadedDocument(value: unknown): AaDocument | null {
