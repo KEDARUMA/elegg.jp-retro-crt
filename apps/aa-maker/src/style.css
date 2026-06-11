@@ -388,6 +388,7 @@ button {
 }
 
 .aa-cell {
+  position: relative;
   width: var(--cell-width);
   height: var(--cell-height);
   padding: 0;
@@ -398,6 +399,27 @@ button {
   text-align: center;
   white-space: pre;
   user-select: none;
+}
+
+.aa-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  pointer-events: none;
+  transform-origin: center center;
+  white-space: pre;
+}
+
+.aa-glyph.is-terminal-narrow-wide-glyph {
+  right: auto;
+  width: calc(var(--cell-width) * 2);
+  transform: scaleX(0.5);
+  transform-origin: left center;
 }
 
 .aa-grid-lines {
@@ -849,6 +871,13 @@ button {
   pointer-events: none;
 }
 
+.palette-button-text.is-terminal-narrow-wide-glyph {
+  right: auto;
+  width: 200%;
+  transform: scaleX(0.5);
+  transform-origin: left center;
+}
+
 .palette-button.is-selected {
   position: relative;
   z-index: 1;
@@ -1176,6 +1205,92 @@ button {
 .confirm-modal h2 {
   margin: 0 0 12px;
   font-size: 16px;
+}
+
+.settings-modal-backdrop {
+  z-index: 20;
+}
+
+.settings-modal {
+  width: 390px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+}
+
+.settings-modal-header h2 {
+  margin: 0;
+}
+
+.settings-modal-header button {
+  min-width: 22px;
+  min-height: 22px;
+  border: 0;
+  background: transparent;
+  color: #bbbbbb;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.settings-modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.settings-field > span {
+  color: #dddddd;
+}
+
+.settings-field select {
+  height: 28px;
+  border: 1px solid #555555;
+  background: #232323;
+  color: #eeeeee;
+  padding: 0 8px;
+}
+
+.settings-canvas-color-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #555555;
+  background: #232323;
+  color: #eeeeee;
+}
+
+.settings-canvas-color-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.settings-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-modal-actions button {
+  min-width: 76px;
+  height: 28px;
+  border: 1px solid #555555;
+  background: #3a3a3a;
+  color: #eeeeee;
 }
 
 .color-picker-backdrop {

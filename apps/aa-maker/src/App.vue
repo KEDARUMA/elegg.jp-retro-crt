@@ -4,6 +4,7 @@ import ColorPickerModal from "./components/ColorPickerModal.vue";
 import EditorGrid from "./components/EditorGrid.vue";
 import ExportDocumentModal from "./components/ExportDocumentModal.vue";
 import SaveDocumentModal from "./components/SaveDocumentModal.vue";
+import SettingsModal from "./components/SettingsModal.vue";
 import SidePanel from "./components/SidePanel.vue";
 import Toolbox from "./components/Toolbox.vue";
 import TopMenu from "./components/TopMenu.vue";
@@ -16,6 +17,8 @@ type ExportDestination = "download" | "clipboard";
 
 const isSaveDocumentModalOpen = ref(false);
 const isExportDocumentModalOpen = ref(false);
+const isSettingsModalOpen = ref(false);
+const isSettingsCanvasColorPickerOpen = ref(false);
 
 function openSaveDocumentModal() {
   isSaveDocumentModalOpen.value = true;
@@ -30,6 +33,28 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
   isExportDocumentModalOpen.value = false;
   void aaMaker.exportDocument(format, destination);
 }
+
+function openSettingsModal() {
+  isSettingsModalOpen.value = true;
+}
+
+function closeSettingsModal() {
+  isSettingsModalOpen.value = false;
+  isSettingsCanvasColorPickerOpen.value = false;
+}
+
+function openSettingsCanvasColorPicker() {
+  aaMaker.closeSelectedColorPicker();
+  isSettingsCanvasColorPickerOpen.value = true;
+}
+
+function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
+  if (color !== null) {
+    aaMaker.setCanvasColor(color);
+  }
+
+  isSettingsCanvasColorPickerOpen.value = false;
+}
 </script>
 
 <template>
@@ -39,6 +64,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @save-document="openSaveDocumentModal"
       @load-document="aaMaker.loadDocument"
       @export-document="isExportDocumentModalOpen = true"
+      @open-settings="openSettingsModal"
       @invert-canvas-background="aaMaker.invertCanvasBackground"
       @scan-unicode-glyph-pages="aaMaker.scanAllUnicodeGlyphPages"
     />
@@ -58,6 +84,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :cells="aaMaker.gridCells"
       :get-cell-text="aaMaker.getCellText"
       :get-cell-class="aaMaker.getCellClass"
+      :get-cell-glyph-class="aaMaker.getCellGlyphClass"
       :get-cell-style="aaMaker.getCellStyle"
       :grid-line-style="aaMaker.gridLineStyle.value"
       :selection-style="aaMaker.selectionStyle.value"
@@ -67,6 +94,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :selected-foreground-color="aaMaker.toolState.selectedFGC"
       :selected-background-color="aaMaker.toolState.selectedBGC"
       :canvas-background-color="aaMaker.documentModel.canvasBGC"
+      :width-mode="aaMaker.widthMode.value"
       @cell-enter="aaMaker.handleCellEnter"
       @cell-down="aaMaker.handleCellDown"
       @cell-up="aaMaker.handleCellUp"
@@ -88,6 +116,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :selected-palette-cell-index="aaMaker.selectedPaletteCellIndex.value"
       :canvas-color="aaMaker.documentModel.canvasBGC"
       :foreground-default-color="aaMaker.foregroundDefaultColor.value"
+      :width-mode="aaMaker.widthMode.value"
       :info="aaMaker.info.value"
       :layers="aaMaker.layerList.value"
       :active-layer-id="aaMaker.documentModel.activeLayerId"
@@ -169,6 +198,16 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @export="exportDocument"
       @cancel="isExportDocumentModalOpen = false"
     />
+    <SettingsModal
+      v-if="isSettingsModalOpen"
+      :language="aaMaker.language.value"
+      :canvas-color="aaMaker.documentModel.canvasBGC"
+      :width-mode="aaMaker.widthMode.value"
+      @close="closeSettingsModal"
+      @update-language="aaMaker.setLanguage"
+      @update-width-mode="aaMaker.setWidthMode"
+      @open-canvas-color-picker="openSettingsCanvasColorPicker"
+    />
     <ColorPickerModal
       v-if="aaMaker.selectedColorPickerMode.value"
       :mode="aaMaker.selectedColorPickerMode.value"
@@ -177,6 +216,15 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       :allow-none="aaMaker.colorPickerAllowsNone?.value ?? aaMaker.selectedColorPickerMode.value === 'bgc'"
       @apply="aaMaker.selectSelectedColor"
       @cancel="aaMaker.closeSelectedColorPicker"
+    />
+    <ColorPickerModal
+      v-if="isSettingsCanvasColorPickerOpen"
+      mode="bgc"
+      :initial-color="aaMaker.documentModel.canvasBGC"
+      :swatches="aaMaker.colorSchemes[0]?.colors ?? []"
+      :allow-none="false"
+      @apply="applySettingsCanvasColor"
+      @cancel="isSettingsCanvasColorPickerOpen = false"
     />
   </main>
 </template>

@@ -8,7 +8,7 @@ export const DEFAULT_DOCUMENT_NAME = "aa-maker";
 export const NBSP = "\u00a0";
 export const CP437_FULL_BLOCK = "\u2588";
 
-export function createEmptyDocument(): Document {
+export function createEmptyDocument(canvasBGC = DEFAULT_CANVAS_BGC): Document {
   const layer = createLayer("layer-1", "Layer 1");
 
   return {
@@ -16,7 +16,7 @@ export function createEmptyDocument(): Document {
     name: DEFAULT_DOCUMENT_NAME,
     width: GRID_WIDTH,
     height: GRID_HEIGHT,
-    canvasBGC: DEFAULT_CANVAS_BGC,
+    canvasBGC,
     layers: [layer],
     activeLayerId: layer.id,
     nextLayerNumber: 2,

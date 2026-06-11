@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import eraserIcon from "../assets/icons/eraser.svg?raw";
 import eyedropperIcon from "../assets/icons/eyedropper.svg?raw";
 import penIcon from "../assets/icons/pen.svg?raw";
@@ -10,11 +10,14 @@ import gikoNekoStampsMds from "../data/stamps/giko-neko.mds?raw";
 import monarStampsMds from "../data/stamps/monar.mds?raw";
 import speechBubbleStampsMds from "../data/stamps/speech-bubble.mds?raw";
 import unicodeGlyphPages from "../data/unicode-glyph-pages.json";
+import { loadStoredAppSettings, saveStoredAppSettings, type AppLanguage } from "../model/appSettings";
 import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
-import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar } from "../model/gridOperations";
+import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar, setCharWidthMode, shouldFitWideGlyphIntoNarrowCell } from "../model/gridOperations";
+import { reflowDocumentToWidthMode, reflowStampCollectionsToWidthMode } from "../model/reflow";
 import { parseStampMdsSources } from "../model/parseStampMds";
 import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, StampCell, Tool } from "../model/types";
+import type { WidthMode } from "../model/widthMode";
 import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
 import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
 
@@ -82,6 +85,7 @@ type StampPreviewCell = {
   text: string;
   style: Record<string, string>;
   className: string[];
+  glyphClassName: string[];
 };
 
 type ExportFormat = "plain" | "ansi" | "mds" | "html";
@@ -202,6 +206,12 @@ type StoredHistoryPalette = {
 };
 
 export function useAaMaker() {
+  const storedSettings = loadStoredAppSettings();
+  const language = ref<AppLanguage>(storedSettings.language);
+  const widthMode = ref<WidthMode>(storedSettings.widthMode);
+
+  setCharWidthMode(widthMode.value);
+
   const normalPalettes = (charPalettes as Omit<NormalPalette, "kind">[]).map((palette) => ({ ...palette, kind: "normal" as const }));
   const defaultNormalPaletteById = new Map(normalPalettes.map((palette) => [palette.id, { ...palette, chars: [...palette.chars] }]));
   const initialStampSets = createStampSets(parseStampMdsSources(stampSources));
@@ -252,7 +262,7 @@ export function useAaMaker() {
   const stampSets = reactive<StampSet[]>(initialStampSets.map((stampSet) => ({ ...stampSet, stamps: [...stampSet.stamps] })));
   const activeStampSetId = ref(stampSets[0]?.id ?? "");
   const activeStampId = ref("");
-  const documentModel = reactive(createEmptyDocument());
+  const documentModel = reactive(createEmptyDocument(storedSettings.canvasBGC));
   const toolState = reactive(createInitialToolState());
   const gridZoom = ref(toolState.zoom);
   const isDrawing = ref(false);
@@ -274,6 +284,18 @@ export function useAaMaker() {
   const selectedCharAttentionKey = ref(0);
   let similarGlyphSearchHandle: SimilarGlyphSearchHandle | null = null;
   let toolCursorCellPreviewTimer: number | null = null;
+
+  watch(
+    [language, widthMode, () => documentModel.canvasBGC],
+    () => {
+      saveStoredAppSettings({
+        language: language.value,
+        canvasBGC: documentModel.canvasBGC,
+        widthMode: widthMode.value,
+      });
+    },
+    { immediate: true },
+  );
 
   const tools = computed<ToolItem[]>(() => [
     {
@@ -642,6 +664,9 @@ export function useAaMaker() {
       }
 
       Object.assign(documentModel, loadedState.document);
+      reflowDocumentToWidthMode(documentModel, widthMode.value);
+      reflowStampCollectionsToWidthMode(stampSets, widthMode.value);
+      toolState.selectedCharWidth = toolState.selectedChar === null ? 1 : getCharWidth(toolState.selectedChar, widthMode.value);
       toolState.highlight = { kind: "none" };
       draftSelection.value = null;
       cursorPosition.value = null;
@@ -700,12 +725,64 @@ export function useAaMaker() {
   }
 
   function invertCanvasBackground() {
+    setCanvasColor(invertHexColor(documentModel.canvasBGC));
+  }
+
+  function setCanvasColor(color: Color) {
+    if (documentModel.canvasBGC === color) {
+      return;
+    }
+
     const previousForegroundDefaultColor = getForegroundDefaultColor();
     const previousAppearance = getSelectedAppearanceSnapshot();
 
     recordDocumentHistory();
-    documentModel.canvasBGC = invertHexColor(documentModel.canvasBGC);
+    documentModel.canvasBGC = color;
     updateForegroundDefaultColor(previousForegroundDefaultColor, getForegroundDefaultColor());
+    notifySelectedAppearanceChange(previousAppearance);
+  }
+
+  function setLanguage(nextLanguage: AppLanguage) {
+    language.value = nextLanguage;
+  }
+
+  function setWidthMode(nextWidthMode: WidthMode) {
+    if (widthMode.value === nextWidthMode) {
+      return;
+    }
+
+    const previousAppearance = getSelectedAppearanceSnapshot();
+
+    closeSelectionContextMenu();
+
+    if (textDraft.value) {
+      confirmTextEditor();
+    }
+
+    stopDrawing();
+
+    if (toolState.highlight.kind === "rect") {
+      commitHighlight();
+    }
+
+    const similarPalette = getSimilarPalette();
+    cancelSimilarSearch();
+
+    if (similarPalette) {
+      similarPalette.results = [];
+      similarPalette.checkedPageCount = 0;
+      similarPalette.totalPageCount = 0;
+      similarPalette.checkedCodePointCount = 0;
+      similarPalette.status = "Idle";
+    }
+
+    recordDocumentHistory();
+    widthMode.value = nextWidthMode;
+    setCharWidthMode(nextWidthMode);
+    reflowDocumentToWidthMode(documentModel, nextWidthMode);
+    reflowStampCollectionsToWidthMode(stampSets, nextWidthMode);
+    reflowStampCollectionsToWidthMode([...defaultStampSetById.values()], nextWidthMode);
+    toolState.selectedCharWidth = toolState.selectedChar === null ? 1 : getCharWidth(toolState.selectedChar, nextWidthMode);
     notifySelectedAppearanceChange(previousAppearance);
   }
 
@@ -1175,7 +1252,7 @@ export function useAaMaker() {
 
     if (firstChar) {
       const previousAppearance = getSelectedAppearanceSnapshot();
-      const width = getCharWidth(firstChar);
+      const width = getCharWidth(firstChar, widthMode.value);
 
       setSelectedChar(firstChar, width, true);
       fillSelectionWithChar(firstChar, width);
@@ -1405,13 +1482,14 @@ export function useAaMaker() {
       {
         pageData: unicodeGlyphPages as UnicodeGlyphPageData,
         targetChar,
-        targetWidth: getCharWidth(targetChar),
+        targetWidth: getCharWidth(targetChar, widthMode.value),
         fontFamily: palette.fontFamily.trim() || SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
         canvasSize: palette.canvasSize,
         threshold: palette.threshold,
         widthMatch: palette.widthMatch,
         maxResults: palette.maxResults,
         workerCount: getUnicodeGlyphScanWorkerCount(),
+        widthMode: widthMode.value,
       },
       {
         onResults(results) {
@@ -2044,7 +2122,7 @@ export function useAaMaker() {
       for (const grapheme of getGraphemes(lines[rowIndex].replace(/\t/g, "    "))) {
         const isBlank = isClipboardBlankGrapheme(grapheme);
         const char = grapheme === " " ? NBSP : grapheme;
-        const width = isBlank ? getCharWidth(grapheme) : getCharWidth(char);
+        const width = isBlank ? getCharWidth(grapheme, widthMode.value) : getCharWidth(char, widthMode.value);
 
         while (rowCells.length < x) {
           rowCells.push(createEmptyCell());
@@ -2349,6 +2427,24 @@ export function useAaMaker() {
     return [];
   }
 
+  function getCellGlyphClass(x: number, y: number) {
+    const compositedCell = compositedGrid.value[y][x];
+
+    if (compositedCell.kind !== "char") {
+      return [];
+    }
+
+    return getGlyphClass(compositedCell.char, compositedCell.width);
+  }
+
+  function getGlyphClass(char: string, width: 1 | 2) {
+    if (width !== 1 || !shouldFitWideGlyphIntoNarrowCell(char, widthMode.value)) {
+      return [];
+    }
+
+    return ["is-terminal-narrow-wide-glyph"];
+  }
+
   function getCellStyle(x: number, y: number) {
     const compositedCell = compositedGrid.value[y][x];
     const style = { backgroundColor: `#${compositedCell.bgc}` } as Record<string, string>;
@@ -2378,6 +2474,7 @@ export function useAaMaker() {
             backgroundColor: `#${cell.bgc ?? documentModel.canvasBGC}`,
           },
           className: cell.width === 2 ? ["is-wide-head"] : [],
+          glyphClassName: getGlyphClass(cell.char, cell.width),
         });
       });
     });
@@ -2494,7 +2591,7 @@ export function useAaMaker() {
     let width = 0;
 
     for (const grapheme of getGraphemes(line)) {
-      width += grapheme === " " ? 1 : getCharWidth(grapheme);
+      width += grapheme === " " ? 1 : getCharWidth(grapheme, widthMode.value);
     }
 
     return width;
@@ -2511,7 +2608,7 @@ export function useAaMaker() {
 
       for (const grapheme of getGraphemes(lines[rowIndex].replace(/\t/g, "    "))) {
         const char = grapheme === " " ? NBSP : grapheme;
-        const width = getCharWidth(char);
+        const width = getCharWidth(char, widthMode.value);
 
         rowCells[x] = {
           kind: "char",
@@ -2840,6 +2937,7 @@ export function useAaMaker() {
   return {
     activePalette,
     activePaletteId,
+    language,
     selectedPaletteCellIndex,
     activeStamp,
     activeStampId,
@@ -2870,7 +2968,9 @@ export function useAaMaker() {
     toolState,
     tools,
     zoomLabel,
+    widthMode,
     getCellClass,
+    getCellGlyphClass,
     getCellStyle,
     getCellText,
     handleCellContext,
@@ -2883,6 +2983,9 @@ export function useAaMaker() {
     handleHighlightMove,
     handleKeyboardInput,
     invertCanvasBackground,
+    setCanvasColor,
+    setLanguage,
+    setWidthMode,
     addLayer,
     clearSelectionColors,
     closeSelectionContextMenu,

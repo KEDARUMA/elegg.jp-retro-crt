@@ -1,3 +1,5 @@
+import { getTerminalCharWidth, type WidthMode } from "../model/widthMode";
+
 type SimilarGlyphSearchResult = {
   char: string;
   codePoint: number;
@@ -18,6 +20,7 @@ type WorkerRequest = {
   canvasSize: number;
   threshold: number;
   widthMatch: boolean;
+  widthMode: WidthMode;
 };
 
 type WorkerMessage =
@@ -62,7 +65,7 @@ workerScope.onmessage = (event) => {
 };
 
 function searchSimilarGlyphs(request: WorkerRequest) {
-  const renderer = createGlyphRenderer(request.canvasSize, request.fontFamily);
+  const renderer = createGlyphRenderer(request.canvasSize, request.fontFamily, request.widthMode);
   const targetImage = renderer.render(request.targetChar);
   const results: SimilarGlyphSearchResult[] = [];
   let checkedPageCount = 0;
@@ -121,7 +124,7 @@ function searchSimilarGlyphs(request: WorkerRequest) {
   workerScope.postMessage({ type: "done", id: request.id, checkedPageCount, checkedCodePointCount });
 }
 
-function createGlyphRenderer(canvasSize: number, fontFamily: string) {
+function createGlyphRenderer(canvasSize: number, fontFamily: string, widthMode: WidthMode) {
   const sourceSize = canvasSize * 3;
   const sourceCanvas = new OffscreenCanvas(sourceSize, sourceSize);
   const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
@@ -160,6 +163,10 @@ function createGlyphRenderer(canvasSize: number, fontFamily: string) {
       return fallbackBits.has(image.bits);
     },
     measureWidth(char: string): 1 | 2 {
+      if (widthMode === "terminal") {
+        return getTerminalCharWidth(char);
+      }
+
       const charWidth = measureContext.measureText(char).width;
 
       return Math.abs(charWidth - fullWidth) < Math.abs(charWidth - halfWidth) ? 2 : 1;

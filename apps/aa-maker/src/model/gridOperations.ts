@@ -1,9 +1,10 @@
 import { createEmptyCell } from "./createDocument";
 import type { Cell, CharCell, Layer } from "./types";
-import stringWidth from "string-width";
+import { DEFAULT_WIDTH_MODE, getTerminalCharWidth, type WidthMode } from "./widthMode";
 
 const DEFAULT_MEASURE_FONT = '16px "MS Gothic", monospace';
 const measuredCharWidths = new Map<string, 1 | 2>();
+const terminalNarrowWideGlyphFits = new Map<string, boolean>();
 let measureDomHost: HTMLDivElement | null | undefined;
 let measureDomText: HTMLSpanElement | null = null;
 let measuredDomFont = "";
@@ -13,6 +14,7 @@ let measureCanvasContext: CanvasRenderingContext2D | null | undefined;
 let measuredCanvasFont = "";
 let measuredHalfWidth: number | null = null;
 let measuredFullWidth: number | null = null;
+let currentWidthMode: WidthMode = DEFAULT_WIDTH_MODE;
 
 export function getCell(layer: Layer, x: number, y: number): Cell | null {
   return layer.cells[y]?.[x] ?? null;
@@ -144,9 +146,39 @@ export function eraseCell(layer: Layer, x: number, y: number): boolean {
   return true;
 }
 
-export function getCharWidth(char: string): 1 | 2 {
+export function setCharWidthMode(widthMode: WidthMode) {
+  currentWidthMode = widthMode;
+}
+
+export function getCharWidth(char: string, widthMode: WidthMode = currentWidthMode): 1 | 2 {
+  if (widthMode === "terminal") {
+    return getTerminalCharWidth(char);
+  }
+
+  return getWebCharWidth(char);
+}
+
+export function getWebCharWidth(char: string): 1 | 2 {
   const measuredWidth = getDomMeasuredCharWidth(char) ?? getCanvasMeasuredCharWidth(char);
-  return measuredWidth ?? (stringWidth(char, { ambiguousIsNarrow: true }) > 1 ? 2 : 1);
+  return measuredWidth ?? getTerminalCharWidth(char);
+}
+
+export function shouldFitWideGlyphIntoNarrowCell(char: string, widthMode: WidthMode = currentWidthMode) {
+  if (widthMode !== "terminal" || getTerminalCharWidth(char) !== 1) {
+    return false;
+  }
+
+  const font = getMeasureFont();
+  const cacheKey = `${font}\n${char}`;
+  const cachedFit = terminalNarrowWideGlyphFits.get(cacheKey);
+
+  if (cachedFit !== undefined) {
+    return cachedFit;
+  }
+
+  const shouldFit = getWebCharWidth(char) === 2;
+  terminalNarrowWideGlyphFits.set(cacheKey, shouldFit);
+  return shouldFit;
 }
 
 export function getFirstGrapheme(value: string): string {

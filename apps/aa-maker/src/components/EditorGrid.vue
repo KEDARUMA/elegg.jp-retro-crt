@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import InlineTextEditor from "./InlineTextEditor.vue";
+import type { WidthMode } from "../model/widthMode";
 
 type GridCell = {
   x: number;
@@ -13,12 +14,14 @@ type StampPreviewCell = {
   text: string;
   style: Record<string, string>;
   className: string[];
+  glyphClassName: string[];
 };
 
 defineProps<{
   cells: GridCell[];
   getCellText: (x: number, y: number) => string;
   getCellClass: (x: number, y: number) => string[];
+  getCellGlyphClass: (x: number, y: number) => string[];
   getCellStyle: (x: number, y: number) => Record<string, string>;
   gridLineStyle: Record<string, string>;
   selectionStyle: Record<string, string> | null;
@@ -28,6 +31,7 @@ defineProps<{
   selectedForegroundColor: string;
   selectedBackgroundColor: string | null;
   canvasBackgroundColor: string;
+  widthMode: WidthMode;
 }>();
 
 const emit = defineEmits<{
@@ -353,7 +357,7 @@ function clamp(value: number, min: number, max: number) {
             @pointerup="emit('cellUp', cell.x, cell.y)"
             @contextmenu="emit('cellContext', cell.x, cell.y, $event)"
           >
-            {{ getCellText(cell.x, cell.y) }}
+            <span class="aa-glyph" :class="getCellGlyphClass(cell.x, cell.y)">{{ getCellText(cell.x, cell.y) }}</span>
           </div>
           <div class="aa-grid-lines" :style="gridLineStyle" aria-hidden="true"></div>
           <div
@@ -379,7 +383,7 @@ function clamp(value: number, min: number, max: number) {
             }"
             aria-hidden="true"
           >
-            {{ highlightCell.text }}
+            <span class="aa-glyph" :class="highlightCell.glyphClassName">{{ highlightCell.text }}</span>
           </div>
           <div
             v-for="previewCell in stampPreviewCells"
@@ -393,13 +397,14 @@ function clamp(value: number, min: number, max: number) {
             }"
             aria-hidden="true"
           >
-            {{ previewCell.text }}
+            <span class="aa-glyph" :class="previewCell.glyphClassName">{{ previewCell.text }}</span>
           </div>
           <InlineTextEditor
             :draft="textDraft"
             :selected-foreground-color="selectedForegroundColor"
             :selected-background-color="selectedBackgroundColor"
             :canvas-background-color="canvasBackgroundColor"
+            :width-mode="widthMode"
             @update-value="(value) => $emit('textEditorUpdate', value)"
             @confirm="$emit('textEditorConfirm')"
             @cancel="$emit('textEditorCancel')"

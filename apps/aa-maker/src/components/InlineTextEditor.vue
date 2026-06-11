@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { getCharWidth } from "../model/gridOperations";
+import type { WidthMode } from "../model/widthMode";
 
 type TextDraft = {
   x: number;
@@ -16,6 +17,7 @@ const props = defineProps<{
   selectedForegroundColor: string;
   selectedBackgroundColor: string | null;
   canvasBackgroundColor: string;
+  widthMode: WidthMode;
 }>();
 
 const emit = defineEmits<{
@@ -139,7 +141,7 @@ function getLineWidth(line: string) {
   let width = 0;
 
   for (const char of Array.from(new Intl.Segmenter().segment(line), (segment) => segment.segment)) {
-    width += char === " " ? 1 : getCharWidth(char);
+    width += char === " " ? 1 : getCharWidth(char, props.widthMode);
   }
 
   return width;

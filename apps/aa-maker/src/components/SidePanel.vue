@@ -14,6 +14,7 @@ import ConfirmModal from "./ConfirmModal.vue";
 import EditableListModal from "./EditableListModal.vue";
 import InfoPanel from "./InfoPanel.vue";
 import type { Layer, Stamp, StampCell, Tool } from "../model/types";
+import type { WidthMode } from "../model/widthMode";
 import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
 
 type NormalPalette = {
@@ -100,6 +101,7 @@ const props = defineProps<{
   selectedPaletteCellIndex: number | null;
   canvasColor: string;
   foregroundDefaultColor: string;
+  widthMode: WidthMode;
   info: InfoState;
   layers: Layer[];
   activeLayerId: string;
@@ -340,6 +342,7 @@ function getStampCellStyle(cell: StampCell | null) {
       :selected-palette-cell-index="selectedPaletteCellIndex"
       :canvas-color="canvasColor"
       :foreground-default-color="foregroundDefaultColor"
+      :width-mode="widthMode"
       @select-palette="(paletteId) => $emit('selectPalette', paletteId)"
       @select-char="(char, width, fillEmptyOnly) => $emit('selectChar', char, width, fillEmptyOnly)"
       @select-palette-cell="(index) => $emit('selectPaletteCell', index)"

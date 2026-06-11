@@ -6,6 +6,7 @@ const emit = defineEmits<{
   saveDocument: [];
   loadDocument: [file: File];
   exportDocument: [];
+  openSettings: [];
   invertCanvasBackground: [];
   scanUnicodeGlyphPages: [];
 }>();
@@ -64,6 +65,11 @@ function requestExport() {
   isFileMenuOpen.value = false;
 }
 
+function requestSettings() {
+  emit("openSettings");
+  isFileMenuOpen.value = false;
+}
+
 function requestInvertCanvasBackground() {
   emit("invertCanvasBackground");
   isImageMenuOpen.value = false;
@@ -85,6 +91,7 @@ function requestUnicodeGlyphPageScan() {
           <button type="button" @click="requestLoad">Load</button>
           <button type="button" @click="requestSave">Save</button>
           <button type="button" @click="requestExport">Export</button>
+          <button type="button" @click="requestSettings">Settings</button>
         </div>
         <input ref="fileInputRef" class="hidden-file-input" type="file" accept="application/json,.json" @change="handleLoadFile" />
       </div>

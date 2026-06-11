@@ -1,3 +1,5 @@
+import type { WidthMode } from "../model/widthMode";
+
 export type SimilarGlyphSearchResult = {
   char: string;
   codePoint: number;
@@ -28,6 +30,7 @@ export type SimilarGlyphSearchOptions = {
   widthMatch: boolean;
   maxResults: number;
   workerCount: number;
+  widthMode: WidthMode;
 };
 
 export type SimilarGlyphSearchProgress = {
@@ -54,6 +57,7 @@ type WorkerRequest = {
   canvasSize: number;
   threshold: number;
   widthMatch: boolean;
+  widthMode: WidthMode;
 };
 
 type WorkerMessage =
@@ -165,6 +169,7 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
       canvasSize: options.canvasSize,
       threshold: options.threshold,
       widthMatch: options.widthMatch,
+      widthMode: options.widthMode,
     } satisfies WorkerRequest);
   });
 

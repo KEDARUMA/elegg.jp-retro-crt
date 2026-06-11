@@ -3,7 +3,8 @@ import { computed, nextTick, ref } from "vue";
 import editIcon from "../assets/icons/edit.svg?raw";
 import plusIcon from "../assets/icons/plus.svg?raw";
 import trashIcon from "../assets/icons/trash.svg?raw";
-import { getCharWidth, getFirstGrapheme } from "../model/gridOperations";
+import { getCharWidth, getFirstGrapheme, shouldFitWideGlyphIntoNarrowCell } from "../model/gridOperations";
+import type { WidthMode } from "../model/widthMode";
 import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
 
 type NormalPalette = {
@@ -67,6 +68,7 @@ const props = defineProps<{
   selectedPaletteCellIndex: number | null;
   canvasColor: string;
   foregroundDefaultColor: string;
+  widthMode: WidthMode;
 }>();
 
 const emit = defineEmits<{
@@ -165,16 +167,24 @@ function getPaletteCodeLabel(palette: NormalPalette, code: number) {
   return getCodeLabel(code);
 }
 
-function getPaletteCharWidth(palette: NormalPalette, char: string | null): 1 | 2 {
-  if (typeof palette.startCode === "number" || char === null) {
+function getPaletteCharWidth(char: string | null): 1 | 2 {
+  if (char === null) {
     return 1;
   }
 
-  return getCharWidth(char);
+  return getCharWidth(char, props.widthMode);
 }
 
-function isWidePaletteChar(palette: NormalPalette, char: string | null) {
-  return char !== null && getPaletteCharWidth(palette, char) === 2;
+function isWidePaletteChar(char: string | null) {
+  return char !== null && getPaletteCharWidth(char) === 2;
+}
+
+function getPaletteGlyphClass(char: string | null) {
+  if (char === null || getPaletteCharWidth(char) !== 1 || !shouldFitWideGlyphIntoNarrowCell(char, props.widthMode)) {
+    return [];
+  }
+
+  return ["is-terminal-narrow-wide-glyph"];
 }
 
 function getUnicodePalette() {
@@ -199,7 +209,7 @@ function handleNormalPaletteClick(index: number, char: string | null, event: Mou
   }
 
   emit("selectPaletteCell", index);
-  emit("selectChar", char, getPaletteCharWidth(props.activePalette as NormalPalette, char), event.shiftKey);
+  emit("selectChar", char, getPaletteCharWidth(char), event.shiftKey);
 }
 
 function handleNormalPaletteContextMenu(index: number, char: string | null) {
@@ -214,7 +224,7 @@ function selectUnicodeChar(code: number, event: MouseEvent) {
   const char = getUnicodeChar(code);
 
   if (char) {
-    emit("selectChar", char, getCharWidth(char), event.shiftKey);
+    emit("selectChar", char, getCharWidth(char, props.widthMode), event.shiftKey);
   }
 }
 
@@ -248,7 +258,7 @@ function jumpToUnicodeCode(query: string) {
   const char = getUnicodeChar(code);
 
   if (char) {
-    emit("selectChar", char, getCharWidth(char), false);
+    emit("selectChar", char, getCharWidth(char, props.widthMode), false);
   }
 
   const nextScrollTop = Math.floor((code - UNICODE_MIN_CODE) / UNICODE_COLUMNS) * UNICODE_ROW_HEIGHT;
@@ -306,7 +316,7 @@ function parseUnicodeQuery(query: string) {
           class="palette-button"
           :class="{
             'is-selected': index === selectedPaletteCellIndex || (selectedPaletteCellIndex === null && char !== null && selectedChar === char),
-            'is-wide': isWidePaletteChar(activePalette, char),
+            'is-wide': isWidePaletteChar(char),
           }"
           type="button"
           :disabled="char === null"
@@ -315,7 +325,7 @@ function parseUnicodeQuery(query: string) {
           @click="handleNormalPaletteClick(index, char, $event)"
           @contextmenu.prevent="handleNormalPaletteContextMenu(index, char)"
         >
-          <span class="palette-button-text">{{ char ?? "" }}</span>
+          <span class="palette-button-text" :class="getPaletteGlyphClass(char)">{{ char ?? "" }}</span>
         </button>
       </div>
       <div v-if="activePalette.id !== 'cp437'" class="palette-cell-actions" aria-label="Character palette actions">
@@ -341,13 +351,13 @@ function parseUnicodeQuery(query: string) {
           v-for="(char, index) in activePalette.history"
           :key="`history-${index}`"
           class="palette-button"
-          :class="{ 'is-selected': selectedChar === char, 'is-wide': char !== null && getCharWidth(char) === 2 }"
+          :class="{ 'is-selected': selectedChar === char, 'is-wide': isWidePaletteChar(char) }"
           type="button"
           :disabled="char === null"
           :title="char ? getCodeLabel(char.codePointAt(0) ?? 0) : 'Empty'"
-          @click="char && $emit('selectChar', char, getCharWidth(char), $event.shiftKey)"
+          @click="char && $emit('selectChar', char, getPaletteCharWidth(char), $event.shiftKey)"
         >
-          <span class="palette-button-text">{{ char ?? "" }}</span>
+          <span class="palette-button-text" :class="getPaletteGlyphClass(char)">{{ char ?? "" }}</span>
         </button>
       </div>
     </div>
@@ -449,7 +459,7 @@ function parseUnicodeQuery(query: string) {
           :title="getSimilarResultTitle(result)"
           @click="$emit('selectChar', result.char, result.width, $event.shiftKey)"
         >
-          <span class="palette-button-text">{{ result.char }}</span>
+          <span class="palette-button-text" :class="getPaletteGlyphClass(result.char)">{{ result.char }}</span>
         </button>
       </div>
     </div>
@@ -471,13 +481,13 @@ function parseUnicodeQuery(query: string) {
                 v-for="code in row.chars"
                 :key="code"
                 class="palette-button"
-                :class="{ 'is-selected': selectedChar === getUnicodeChar(code), 'is-wide': getUnicodeChar(code) !== '' && getCharWidth(getUnicodeChar(code)) === 2 }"
+                :class="{ 'is-selected': selectedChar === getUnicodeChar(code), 'is-wide': isWidePaletteChar(getUnicodeChar(code)) }"
                 type="button"
                 :disabled="getUnicodeChar(code) === ''"
                 :title="getCodeLabel(code)"
                 @click="selectUnicodeChar(code, $event)"
               >
-                <span class="palette-button-text">{{ getUnicodeChar(code) }}</span>
+                <span class="palette-button-text" :class="getPaletteGlyphClass(getUnicodeChar(code))">{{ getUnicodeChar(code) }}</span>
               </button>
             </div>
           </div>
