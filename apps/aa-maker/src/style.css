@@ -985,6 +985,7 @@ button {
 }
 
 .stamp-list-item {
+  position: relative;
   display: block;
   width: 100%;
   padding: 6px;
@@ -992,6 +993,7 @@ button {
   background: var(--aa-palette-canvas-color, #3a3a3a);
   color: var(--aa-palette-fgdc, #eeeeee);
   text-align: left;
+  cursor: pointer;
 }
 
 .stamp-list-item.is-selected {
@@ -999,11 +1001,39 @@ button {
   background: var(--aa-palette-canvas-color, #5a5a5a);
 }
 
+.stamp-list-item.is-selected::after {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 96, 255, 0.22);
+  pointer-events: none;
+  content: "";
+}
+
+.stamp-list-item.is-selected.is-editing::after {
+  display: none;
+}
+
+.stamp-list-item:focus-visible {
+  outline: 2px solid #66a3ff;
+  outline-offset: -2px;
+}
+
 .stamp-list-name {
   display: block;
   margin-bottom: 4px;
   font-size: 12px;
   line-height: 1.2;
+}
+
+.stamp-name-input {
+  width: 100%;
+  height: 22px;
+  margin: 0 0 4px;
+  border: 0;
+  background: #303030;
+  color: #eeeeee;
+  font: inherit;
+  font-size: 12px;
 }
 
 .stamp-list-preview {
@@ -1111,8 +1141,8 @@ button {
 }
 
 .side-panel > .panel-section:last-of-type {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 146px;
 }
 
 .layer-actions button:disabled {

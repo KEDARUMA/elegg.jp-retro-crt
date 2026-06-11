@@ -1056,6 +1056,18 @@ export function useAaMaker() {
     hasUnsavedDocumentChange.value = true;
   }
 
+  function renameStamp(stampId: string, name: string) {
+    const stamp = stampSets.flatMap((stampSet) => stampSet.stamps).find((candidate) => candidate.id === stampId);
+    const trimmedName = name.trim();
+
+    if (!stamp || trimmedName === "" || stamp.name === trimmedName) {
+      return;
+    }
+
+    stamp.name = trimmedName;
+    hasUnsavedDocumentChange.value = true;
+  }
+
   function selectLayer(layerId: string) {
     const layer = documentModel.layers.find((candidate) => candidate.id === layerId);
 
@@ -2889,6 +2901,7 @@ export function useAaMaker() {
     insertStamp,
     deleteStamp,
     overwriteStamp,
+    renameStamp,
     applyPaletteList,
     applyStampSetList,
     closeSelectedColorPicker,

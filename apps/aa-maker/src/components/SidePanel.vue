@@ -7,6 +7,7 @@ import lockOpenIcon from "../assets/icons/lock-open.svg?raw";
 import lockIcon from "../assets/icons/lock.svg?raw";
 import plusIcon from "../assets/icons/plus.svg?raw";
 import newFileIcon from "../assets/icons/new-file.svg?raw";
+import renameIcon from "../assets/icons/rename.svg?raw";
 import trashIcon from "../assets/icons/trash.svg?raw";
 import CharacterPalette from "./CharacterPalette.vue";
 import ConfirmModal from "./ConfirmModal.vue";
@@ -120,6 +121,7 @@ const emit = defineEmits<{
   insertStamp: [];
   deleteStamp: [];
   overwriteStamp: [stampId: string];
+  renameStamp: [stampId: string, name: string];
   keyboardInput: [value: string];
   updateUnicodeQuery: [query: string];
   updateUnicodeScrollOffset: [scrollOffset: number];
@@ -145,6 +147,9 @@ const emit = defineEmits<{
 const PROTECTED_PALETTE_IDS = new Set(["cp437", "history", "keyboard-input", "unicode", "similar"]);
 const editingLayerId = ref<string | null>(null);
 const editingLayerName = ref("");
+const editingStampId = ref<string | null>(null);
+const editingStampName = ref("");
+const isStampNameComposing = ref(false);
 const isDeleteConfirmOpen = ref(false);
 const editingListKind = ref<"palette" | "stamp-set" | null>(null);
 const activeStampSetStamps = computed(() => props.stampSets.find((stampSet) => stampSet.id === props.activeStampSetId)?.stamps ?? []);
@@ -226,6 +231,68 @@ function handleStampContextMenu(stampId: string) {
   emit("overwriteStamp", stampId);
 }
 
+function handleStampItemKeydown(event: KeyboardEvent, stampId: string) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  event.preventDefault();
+  emit("selectStamp", stampId);
+}
+
+function startStampNameEdit() {
+  const stamp = activeStampSetStamps.value.find((candidate) => candidate.id === props.activeStampId);
+
+  if (!stamp) {
+    return;
+  }
+
+  editingStampId.value = stamp.id;
+  editingStampName.value = stamp.name;
+  isStampNameComposing.value = false;
+  void nextTick(() => {
+    const input = document.querySelector<HTMLInputElement>(".stamp-name-input");
+    input?.focus();
+    input?.select();
+  });
+}
+
+function commitStampName(stampId: string) {
+  if (editingStampId.value !== stampId) {
+    return;
+  }
+
+  emit("renameStamp", stampId, editingStampName.value);
+  editingStampId.value = null;
+  isStampNameComposing.value = false;
+}
+
+function cancelStampNameEdit() {
+  editingStampId.value = null;
+  isStampNameComposing.value = false;
+}
+
+function handleStampNameEnter(event: KeyboardEvent, stampId: string) {
+  event.stopPropagation();
+
+  if (event.isComposing || isStampNameComposing.value) {
+    return;
+  }
+
+  event.preventDefault();
+  commitStampName(stampId);
+}
+
+function handleStampNameCompositionStart() {
+  isStampNameComposing.value = true;
+}
+
+function handleStampNameCompositionEnd() {
+  window.setTimeout(() => {
+    isStampNameComposing.value = false;
+  }, 0);
+}
+
 function openPaletteListEditor() {
   editingListKind.value = "palette";
 }
@@ -305,16 +372,31 @@ function getStampCellStyle(cell: StampCell | null) {
         </button>
       </label>
       <div class="stamp-list">
-        <button
+        <div
           v-for="stamp in activeStampSetStamps"
           :key="stamp.id"
           class="stamp-list-item"
-          :class="{ 'is-selected': stamp.id === activeStampId }"
-          type="button"
+          :class="{ 'is-selected': stamp.id === activeStampId, 'is-editing': stamp.id === editingStampId }"
+          role="button"
+          tabindex="0"
+          :aria-pressed="stamp.id === activeStampId"
           @click="$emit('selectStamp', stamp.id)"
+          @keydown="handleStampItemKeydown($event, stamp.id)"
           @contextmenu.prevent="handleStampContextMenu(stamp.id)"
         >
-          <span class="stamp-list-name">{{ stamp.name }}</span>
+          <span v-if="editingStampId !== stamp.id" class="stamp-list-name">{{ stamp.name }}</span>
+          <input
+            v-else
+            v-model="editingStampName"
+            class="stamp-name-input"
+            type="text"
+            @click.stop
+            @keydown.enter="handleStampNameEnter($event, stamp.id)"
+            @keydown.esc.prevent.stop="cancelStampNameEdit"
+            @compositionstart="handleStampNameCompositionStart"
+            @compositionend="handleStampNameCompositionEnd"
+            @blur="commitStampName(stamp.id)"
+          />
           <div class="stamp-list-preview" aria-hidden="true">
             <div v-for="(row, rowIndex) in stamp.cells" :key="`${stamp.id}-row-${rowIndex}`" class="stamp-list-preview-row">
               <span
@@ -325,11 +407,21 @@ function getStampCellStyle(cell: StampCell | null) {
               >{{ getStampCellText(cell) }}</span>
             </div>
           </div>
-        </button>
+        </div>
       </div>
       <div class="palette-cell-actions" aria-label="Stamp actions">
         <button class="palette-cell-action-button" type="button" aria-label="Add stamp" title="Add stamp" @click="$emit('insertStamp')">
           <span class="palette-cell-action-icon" aria-hidden="true" v-html="plusIcon"></span>
+        </button>
+        <button
+          class="palette-cell-action-button"
+          type="button"
+          aria-label="Rename selected stamp"
+          title="Rename selected stamp"
+          :disabled="!activeStampId"
+          @click="startStampNameEdit"
+        >
+          <span class="palette-cell-action-icon" aria-hidden="true" v-html="renameIcon"></span>
         </button>
         <button
           class="palette-cell-action-button"

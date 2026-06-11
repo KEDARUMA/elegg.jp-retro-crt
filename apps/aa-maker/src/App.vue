@@ -103,6 +103,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       @insert-stamp="aaMaker.insertStamp"
       @delete-stamp="aaMaker.deleteStamp"
       @overwrite-stamp="aaMaker.overwriteStamp"
+      @rename-stamp="aaMaker.renameStamp"
       @apply-palette-list="aaMaker.applyPaletteList"
       @select-stamp-set="aaMaker.selectStampSet"
       @select-stamp="aaMaker.selectStamp"
