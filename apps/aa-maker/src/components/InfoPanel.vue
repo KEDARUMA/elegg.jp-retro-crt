@@ -18,19 +18,35 @@ defineProps<{
 <template>
   <section class="panel-section info-panel">
     <h2>Info</h2>
-    <div class="info-grid">
-      <span>X</span><strong>{{ info.x }}</strong>
-      <span>Y</span><strong>{{ info.y }}</strong>
-      <span>W</span><strong>{{ info.w }}</strong>
-      <span>H</span><strong>{{ info.h }}</strong>
-    </div>
-    <div class="cell-info">
-      <div v-if="info.char === null" class="empty-cell-preview" aria-label="Empty cell preview"></div>
-      <div v-else class="cell-preview" aria-label="Cell preview">{{ info.char }}</div>
-      <div>
-        <div>{{ info.code }}</div>
-        <div>FC:{{ info.fgc }}</div>
-        <div>BC:{{ info.bgc }}</div>
+    <div class="info-layout">
+      <div class="info-metrics">
+        <div class="info-row">
+          <div class="info-metric">
+            <span class="info-label">X:</span>
+            <strong class="info-value">{{ info.x }}</strong>
+          </div>
+          <div class="info-metric">
+            <span class="info-label">Y:</span>
+            <strong class="info-value">{{ info.y }}</strong>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-metric">
+            <span class="info-label">W:</span>
+            <strong class="info-value">{{ info.w }}</strong>
+          </div>
+          <div class="info-metric">
+            <span class="info-label">H:</span>
+            <strong class="info-value">{{ info.h }}</strong>
+          </div>
+        </div>
+      </div>
+      <div v-if="info.char === null" class="empty-cell-preview info-preview" aria-label="Empty cell preview"></div>
+      <div v-else class="cell-preview info-preview" aria-label="Cell preview">{{ info.char }}</div>
+      <div class="info-codes">
+        <div class="info-code">{{ info.code }}</div>
+        <div class="info-code">FC:{{ info.fgc }}</div>
+        <div class="info-code">BC:{{ info.bgc }}</div>
       </div>
     </div>
   </section>

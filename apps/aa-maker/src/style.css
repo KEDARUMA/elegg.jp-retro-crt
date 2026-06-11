@@ -594,41 +594,93 @@ button {
   font-size: 12px;
 }
 
-.info-grid {
+.info-layout {
   display: grid;
-  grid-template-columns: repeat(4, auto 1fr);
-  gap: 4px 6px;
-  padding: 8px;
+  grid-template-columns: 112px 24px minmax(0, 1fr);
+  grid-template-rows: 24px;
+  column-gap: 8px;
+  padding: 4px 8px 6px;
+  align-items: start;
 }
 
-.info-grid span {
+.info-metrics {
+  display: grid;
+  grid-template-rows: repeat(2, 12px);
+  min-width: 0;
+  height: 24px;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: repeat(2, 52px);
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+  line-height: 12px;
+  white-space: nowrap;
+}
+
+.info-metric {
+  display: grid;
+  grid-template-columns: 18px 3ch;
+  align-items: center;
+  column-gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.info-label {
   color: #bbbbbb;
 }
 
-.info-grid strong {
+.info-value {
+  display: block;
+  width: 3ch;
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 400;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-.cell-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
+.info-preview {
+  width: 24px;
+  height: 24px;
+  justify-self: center;
+  align-self: start;
 }
 
 .cell-preview,
 .empty-cell-preview {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
 }
 
 .cell-preview {
   background: #474747;
   color: #eeeeee;
   font-family: var(--aa-font-family);
-  font-size: 20px;
-  line-height: 30px;
+  font-size: 16px;
+  line-height: 24px;
   text-align: center;
+}
+
+.info-codes {
+  display: grid;
+  grid-template-rows: repeat(3, 8px);
+  height: 24px;
+  min-width: 0;
+}
+
+.info-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  line-height: 8px;
 }
 
 .empty-cell-preview {
