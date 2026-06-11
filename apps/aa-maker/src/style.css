@@ -230,6 +230,7 @@ button {
 .selected-char-wrap {
   position: relative;
   width: 34px;
+  margin-bottom: 24px;
 }
 
 .selected-char {
@@ -1693,10 +1694,10 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 16px;
   min-width: 0;
-  padding: 0;
-  background: #252525;
+  padding: 0 0 0 16px;
+  background: #303030;
   color: #eeeeee;
   font-size: 12px;
+  line-height: 16px;
 }

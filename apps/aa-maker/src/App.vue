@@ -7,6 +7,7 @@ import SaveDocumentModal from "./components/SaveDocumentModal.vue";
 import SidePanel from "./components/SidePanel.vue";
 import Toolbox from "./components/Toolbox.vue";
 import TopMenu from "./components/TopMenu.vue";
+import { AA_MAKER_VERSION } from "./appMeta";
 import { useAaMaker } from "./composables/useAaMaker";
 
 const aaMaker = useAaMaker();
@@ -142,10 +143,7 @@ function exportDocument(format: ExportFormat, destination: ExportDestination) {
       <span v-else class="tool-cursor-icon" v-html="aaMaker.toolCursorOverlay.value.icon ?? ''"></span>
     </div>
     <footer class="bottom-status-bar" aria-label="Status">
-      <span>{{ aaMaker.documentModel.name }}</span>
-      <span>80 x 25</span>
-      <span>{{ aaMaker.zoomLabel.value }}</span>
-      <span>Canvas Color: {{ aaMaker.documentModel.canvasBGC }}</span>
+      <span>AA-Maker v{{ AA_MAKER_VERSION }} | {{ aaMaker.zoomLabel.value }} | Canvas Color: {{ aaMaker.documentModel.canvasBGC }}</span>
     </footer>
     <div
       v-if="aaMaker.selectionContextMenuStyle?.value"
