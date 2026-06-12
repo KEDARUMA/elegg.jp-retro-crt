@@ -24,6 +24,7 @@ defineProps<{
   getCellGlyphClass: (x: number, y: number) => string[];
   getCellStyle: (x: number, y: number) => Record<string, string>;
   gridLineStyle: Record<string, string>;
+  cursorStyle: Record<string, string> | null;
   selectionStyle: Record<string, string> | null;
   highlightCells: StampPreviewCell[];
   stampPreviewCells: StampPreviewCell[];
@@ -36,6 +37,7 @@ defineProps<{
 
 const emit = defineEmits<{
   cellEnter: [x: number, y: number];
+  cellLeave: [];
   cellDown: [x: number, y: number, event: PointerEvent];
   cellUp: [x: number, y: number];
   cellContext: [x: number, y: number, event: MouseEvent];
@@ -253,6 +255,33 @@ function handleViewportWheel(event: WheelEvent) {
   requestAnimationFrame(updateLayoutSize);
 }
 
+function handleGridPointerMove(event: PointerEvent) {
+  const cell = getCellFromEvent(event);
+
+  if (cell) {
+    emit("cellEnter", cell.x, cell.y);
+  }
+}
+
+function handleGridPointerLeave() {
+  emit("cellLeave");
+}
+
+function handleCellPointerDown(x: number, y: number, event: PointerEvent) {
+  const cell = getCellFromEvent(event) ?? { x, y };
+  emit("cellDown", cell.x, cell.y, event);
+}
+
+function handleCellPointerUp(x: number, y: number, event: PointerEvent) {
+  const cell = getCellFromEvent(event) ?? { x, y };
+  emit("cellUp", cell.x, cell.y);
+}
+
+function handleCellContext(x: number, y: number, event: MouseEvent) {
+  const cell = getCellFromEvent(event) ?? { x, y };
+  emit("cellContext", cell.x, cell.y, event);
+}
+
 function getTopRulerMarkStyle(mark: number) {
   return {
     left: `${mark * getCellWidth() + gridPosition.value.x - visibleGridRect.value.left}px`,
@@ -342,7 +371,7 @@ function clamp(value: number, min: number, max: number) {
       @auxclick.prevent
     >
       <div ref="editorStageRef" class="editor-stage" :style="stageStyle">
-        <div class="aa-grid" role="grid" aria-label="80 by 25 ASCII art grid">
+        <div class="aa-grid" role="grid" aria-label="80 by 25 ASCII art grid" @pointermove="handleGridPointerMove" @pointerleave="handleGridPointerLeave">
           <div
             v-for="cell in cells"
             :key="`${cell.x},${cell.y}`"
@@ -353,13 +382,14 @@ function clamp(value: number, min: number, max: number) {
             :data-y="cell.y"
             :aria-label="`cell ${cell.x + 1},${cell.y + 1}`"
             @pointerenter="emit('cellEnter', cell.x, cell.y)"
-            @pointerdown="emit('cellDown', cell.x, cell.y, $event)"
-            @pointerup="emit('cellUp', cell.x, cell.y)"
-            @contextmenu="emit('cellContext', cell.x, cell.y, $event)"
+            @pointerdown="handleCellPointerDown(cell.x, cell.y, $event)"
+            @pointerup="handleCellPointerUp(cell.x, cell.y, $event)"
+            @contextmenu="handleCellContext(cell.x, cell.y, $event)"
           >
             <span class="aa-glyph" :class="getCellGlyphClass(cell.x, cell.y)">{{ getCellText(cell.x, cell.y) }}</span>
           </div>
           <div class="aa-grid-lines" :style="gridLineStyle" aria-hidden="true"></div>
+          <div v-if="cursorStyle" class="aa-cursor" :style="cursorStyle" aria-hidden="true"></div>
           <div
             v-if="selectionStyle"
             class="aa-selection"

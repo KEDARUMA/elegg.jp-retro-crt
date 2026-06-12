@@ -425,7 +425,7 @@ button {
 .aa-grid-lines {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 3;
   border-top: 1px solid var(--grid-line-color);
   border-left: 1px solid var(--grid-line-color);
   background-image:
@@ -449,6 +449,16 @@ button {
       transparent 0 calc((var(--cell-height) * 10) - 1px),
       var(--grid-line-major-color) calc((var(--cell-height) * 10) - 1px) calc(var(--cell-height) * 10)
     );
+  pointer-events: none;
+}
+
+.aa-cursor {
+  position: absolute;
+  z-index: 6;
+  width: var(--cell-width);
+  height: var(--cell-height);
+  border: 1px solid rgba(0, 96, 255, 0.58);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
   pointer-events: none;
 }
 

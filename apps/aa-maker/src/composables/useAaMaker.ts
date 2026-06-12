@@ -449,6 +449,18 @@ export function useAaMaker() {
       cursor: draftSelection.value ? "default" : "move",
     };
   });
+  const cursorStyle = computed(() => {
+    const position = cursorPosition.value;
+
+    if (!position) {
+      return null;
+    }
+
+    return {
+      left: `calc(var(--cell-width) * ${position.x})`,
+      top: `calc(var(--cell-height) * ${position.y})`,
+    };
+  });
   const gridLineStyle = computed(() => {
     const color = isDarkColor(documentModel.canvasBGC) ? "255, 255, 255" : "0, 0, 0";
 
@@ -1538,6 +1550,12 @@ export function useAaMaker() {
     }
   }
 
+  function handleCellLeave() {
+    if (!isDrawing.value) {
+      cursorPosition.value = null;
+    }
+  }
+
   function handleCellDown(x: number, y: number, event: PointerEvent) {
     if (event.button !== 0) {
       return;
@@ -2283,9 +2301,11 @@ export function useAaMaker() {
       if (highlightedCell) {
         return applyPickedCell(highlightedCell);
       }
+
+      return applyPickedBlankCell();
     }
 
-    return pickCharAt(x, y, false);
+    return pickCharAt(x, y, false) ?? applyPickedBlankCell();
   }
 
   function applyPickedCell(cell: Extract<Cell, { kind: "char" }>) {
@@ -2297,6 +2317,16 @@ export function useAaMaker() {
 
     notifySelectedAppearanceChange(previousAppearance);
     return cell;
+  }
+
+  function applyPickedBlankCell() {
+    return applyPickedCell({
+      kind: "char",
+      char: NBSP,
+      width: 1,
+      fgc: getForegroundDefaultColor(),
+      bgc: null,
+    });
   }
 
   function ensurePenToolForGridContextAction() {
@@ -2945,6 +2975,7 @@ export function useAaMaker() {
     activeStampSetId,
     colorPickerAllowsNone,
     colorPickerInitialColor,
+    cursorStyle,
     foregroundDefaultColor,
     colorSchemes,
     documentModel,
@@ -2976,6 +3007,7 @@ export function useAaMaker() {
     handleCellContext,
     handleCellDown,
     handleCellEnter,
+    handleCellLeave,
     handleCellUp,
     handleGridMeasureDown,
     handleGridWheel,
