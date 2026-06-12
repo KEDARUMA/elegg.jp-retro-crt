@@ -101,6 +101,17 @@ type HistorySnapshot = {
   document: AaDocument;
   highlight: Highlight;
 };
+type CharPaletteHistorySnapshot = {
+  normalPalettes: NormalPalette[];
+  activePaletteId: string;
+  selectedPaletteCellIndex: number | null;
+};
+type StampPaletteHistorySnapshot = {
+  stampSets: StampSet[];
+  activeStampSetId: string;
+  activeStampId: string;
+};
+type UndoHistoryTarget = "document" | "charPalette" | "stampPalette";
 type TextDraft = {
   x: number;
   y: number;
@@ -276,6 +287,11 @@ export function useAaMaker() {
   const selectionContextMenu = ref<{ x: number; y: number } | null>(null);
   const undoStack = ref<HistorySnapshot[]>([]);
   const redoStack = ref<HistorySnapshot[]>([]);
+  const charPaletteUndoStack = ref<CharPaletteHistorySnapshot[]>([]);
+  const charPaletteRedoStack = ref<CharPaletteHistorySnapshot[]>([]);
+  const stampPaletteUndoStack = ref<StampPaletteHistorySnapshot[]>([]);
+  const stampPaletteRedoStack = ref<StampPaletteHistorySnapshot[]>([]);
+  const lastUndoHistoryTarget = ref<UndoHistoryTarget>("document");
   const textDraft = ref<TextDraft | null>(null);
   const isUnicodeGlyphPageScanRunning = ref(false);
   const hasUnsavedDocumentChange = ref(false);
@@ -704,6 +720,7 @@ export function useAaMaker() {
       closeTextEditor();
       undoStack.value = [];
       redoStack.value = [];
+      clearLibraryHistory();
       hasUnsavedDocumentChange.value = false;
     } catch {
       window.alert("Load failed: invalid AA Maker JSON.");
@@ -886,6 +903,7 @@ export function useAaMaker() {
   }
 
   function applyLoadedLibrary(library: { palettes: LibraryCharPalette[]; stampSets: LibraryStampSet[] }) {
+    clearLibraryHistory();
     const specialPalettes = palettes.filter((palette) => palette.kind !== "normal");
     const nextNormalPalettes = library.palettes.map(createNormalPaletteFromLibrary);
 
@@ -988,6 +1006,7 @@ export function useAaMaker() {
 
     const insertIndex = selectedPaletteCellIndex.value === null ? palette.chars.length : clamp(selectedPaletteCellIndex.value + 1, 0, palette.chars.length);
 
+    recordCharPaletteHistory();
     palette.chars.splice(insertIndex, 0, "\u00a0");
     selectedPaletteCellIndex.value = insertIndex;
 
@@ -1002,6 +1021,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordCharPaletteHistory();
     palette.chars.splice(selectedIndex, 1);
     selectedPaletteCellIndex.value = findNearestPaletteCellIndex(palette.chars, Math.min(selectedIndex, palette.chars.length - 1));
     hasUnsavedDocumentChange.value = true;
@@ -1020,6 +1040,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordCharPaletteHistory();
     palette.chars[index] = toolState.selectedChar;
     hasUnsavedDocumentChange.value = true;
   }
@@ -1062,6 +1083,7 @@ export function useAaMaker() {
   }
 
   function applyPaletteList(items: EditableListItem[]) {
+    clearCharPaletteHistory();
     const nextItems = ensureProtectedPaletteItems(getUniqueEditableListItems(items));
     const existingPalettes = new Map(palettes.map((palette) => [palette.id, palette]));
     const previousActivePaletteId = activePaletteId.value;
@@ -1111,6 +1133,7 @@ export function useAaMaker() {
   }
 
   function applyStampSetList(items: EditableListItem[]) {
+    clearStampPaletteHistory();
     const nextItems = getUniqueEditableListItems(items);
     const existingStampSets = new Map(stampSets.map((stampSet) => [stampSet.id, stampSet]));
     const nextStampSets = nextItems.map((item) => {
@@ -1181,6 +1204,7 @@ export function useAaMaker() {
     const highlight = getRectHighlight();
     const stamp = highlight ? createStampFromHighlight(stampKind, stampId, stampName, highlight) : createBlankStamp(stampKind, stampId, stampName);
 
+    recordStampPaletteHistory();
     stampSet.stamps.splice(insertIndex, 0, stamp);
     activeStampSetId.value = stampSet.id;
     activeStampId.value = stamp.id;
@@ -1200,6 +1224,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordStampPaletteHistory();
     stampSet.stamps.splice(selectedIndex, 1);
     activeStampId.value = stampSet.stamps[Math.min(selectedIndex, stampSet.stamps.length - 1)]?.id ?? "";
     hasUnsavedDocumentChange.value = true;
@@ -1226,6 +1251,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordStampPaletteHistory();
     Object.assign(stamp, nextStamp);
     activeStampId.value = stamp.id;
     hasUnsavedDocumentChange.value = true;
@@ -1239,6 +1265,7 @@ export function useAaMaker() {
       return;
     }
 
+    recordStampPaletteHistory();
     stamp.name = trimmedName;
     hasUnsavedDocumentChange.value = true;
   }
@@ -1410,6 +1437,10 @@ export function useAaMaker() {
       return;
     }
 
+    if (isDialogTarget(event.target)) {
+      return;
+    }
+
     if ((event.ctrlKey || event.metaKey) && key === "a") {
       event.preventDefault();
       event.stopPropagation();
@@ -1421,16 +1452,16 @@ export function useAaMaker() {
       event.preventDefault();
 
       if (event.shiftKey) {
-        redoDocumentChange();
+        redoChange();
       } else {
-        undoDocumentChange();
+        undoChange();
       }
       return;
     }
 
     if ((event.ctrlKey || event.metaKey) && key === "y") {
       event.preventDefault();
-      redoDocumentChange();
+      redoChange();
       return;
     }
 
@@ -1986,12 +2017,60 @@ export function useAaMaker() {
   function recordDocumentHistory() {
     undoStack.value.push(createHistorySnapshot());
     hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "document";
 
     if (undoStack.value.length > UNDO_HISTORY_LIMIT) {
       undoStack.value.shift();
     }
 
     redoStack.value = [];
+  }
+
+  function recordCharPaletteHistory() {
+    charPaletteUndoStack.value.push(createCharPaletteHistorySnapshot());
+    hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "charPalette";
+
+    if (charPaletteUndoStack.value.length > UNDO_HISTORY_LIMIT) {
+      charPaletteUndoStack.value.shift();
+    }
+
+    charPaletteRedoStack.value = [];
+  }
+
+  function recordStampPaletteHistory() {
+    stampPaletteUndoStack.value.push(createStampPaletteHistorySnapshot());
+    hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "stampPalette";
+
+    if (stampPaletteUndoStack.value.length > UNDO_HISTORY_LIMIT) {
+      stampPaletteUndoStack.value.shift();
+    }
+
+    stampPaletteRedoStack.value = [];
+  }
+
+  function clearCharPaletteHistory() {
+    charPaletteUndoStack.value = [];
+    charPaletteRedoStack.value = [];
+
+    if (lastUndoHistoryTarget.value === "charPalette") {
+      lastUndoHistoryTarget.value = "document";
+    }
+  }
+
+  function clearStampPaletteHistory() {
+    stampPaletteUndoStack.value = [];
+    stampPaletteRedoStack.value = [];
+
+    if (lastUndoHistoryTarget.value === "stampPalette") {
+      lastUndoHistoryTarget.value = "document";
+    }
+  }
+
+  function clearLibraryHistory() {
+    clearCharPaletteHistory();
+    clearStampPaletteHistory();
   }
 
   function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -2007,22 +2086,26 @@ export function useAaMaker() {
     const snapshot = undoStack.value.pop();
 
     if (!snapshot) {
-      return;
+      return false;
     }
 
     redoStack.value.push(createHistorySnapshot());
     restoreHistorySnapshot(snapshot);
+    lastUndoHistoryTarget.value = "document";
+    return true;
   }
 
   function redoDocumentChange() {
     const snapshot = redoStack.value.pop();
 
     if (!snapshot) {
-      return;
+      return false;
     }
 
     undoStack.value.push(createHistorySnapshot());
     restoreHistorySnapshot(snapshot);
+    lastUndoHistoryTarget.value = "document";
+    return true;
   }
 
   function createHistorySnapshot(): HistorySnapshot {
@@ -2038,6 +2121,123 @@ export function useAaMaker() {
     draftSelection.value = null;
     closeSelectionContextMenu();
     closeTextEditor();
+  }
+
+  function undoCharPaletteChange() {
+    const snapshot = charPaletteUndoStack.value.pop();
+
+    if (!snapshot) {
+      return false;
+    }
+
+    charPaletteRedoStack.value.push(createCharPaletteHistorySnapshot());
+    restoreCharPaletteHistorySnapshot(snapshot);
+    hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "charPalette";
+    return true;
+  }
+
+  function redoCharPaletteChange() {
+    const snapshot = charPaletteRedoStack.value.pop();
+
+    if (!snapshot) {
+      return false;
+    }
+
+    charPaletteUndoStack.value.push(createCharPaletteHistorySnapshot());
+    restoreCharPaletteHistorySnapshot(snapshot);
+    hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "charPalette";
+    return true;
+  }
+
+  function undoStampPaletteChange() {
+    const snapshot = stampPaletteUndoStack.value.pop();
+
+    if (!snapshot) {
+      return false;
+    }
+
+    stampPaletteRedoStack.value.push(createStampPaletteHistorySnapshot());
+    restoreStampPaletteHistorySnapshot(snapshot);
+    hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "stampPalette";
+    return true;
+  }
+
+  function redoStampPaletteChange() {
+    const snapshot = stampPaletteRedoStack.value.pop();
+
+    if (!snapshot) {
+      return false;
+    }
+
+    stampPaletteUndoStack.value.push(createStampPaletteHistorySnapshot());
+    restoreStampPaletteHistorySnapshot(snapshot);
+    hasUnsavedDocumentChange.value = true;
+    lastUndoHistoryTarget.value = "stampPalette";
+    return true;
+  }
+
+  function undoChange() {
+    if (lastUndoHistoryTarget.value === "charPalette" && undoCharPaletteChange()) {
+      return;
+    }
+
+    if (lastUndoHistoryTarget.value === "stampPalette" && undoStampPaletteChange()) {
+      return;
+    }
+
+    undoDocumentChange();
+  }
+
+  function redoChange() {
+    if (lastUndoHistoryTarget.value === "charPalette" && redoCharPaletteChange()) {
+      return;
+    }
+
+    if (lastUndoHistoryTarget.value === "stampPalette" && redoStampPaletteChange()) {
+      return;
+    }
+
+    redoDocumentChange();
+  }
+
+  function createCharPaletteHistorySnapshot(): CharPaletteHistorySnapshot {
+    return {
+      normalPalettes: palettes.filter((palette): palette is NormalPalette => palette.kind === "normal").map(cloneNormalPalette),
+      activePaletteId: activePaletteId.value,
+      selectedPaletteCellIndex: selectedPaletteCellIndex.value,
+    };
+  }
+
+  function restoreCharPaletteHistorySnapshot(snapshot: CharPaletteHistorySnapshot) {
+    const specialPalettes = palettes.filter((palette) => palette.kind !== "normal");
+    palettes.splice(0, palettes.length, ...snapshot.normalPalettes.map(cloneNormalPalette), ...specialPalettes);
+
+    activePaletteId.value = palettes.some((palette) => palette.id === snapshot.activePaletteId) ? snapshot.activePaletteId : (palettes[0]?.id ?? "");
+
+    const palette = activePalette.value;
+    selectedPaletteCellIndex.value =
+      palette.kind === "normal" && snapshot.selectedPaletteCellIndex !== null && snapshot.selectedPaletteCellIndex >= 0 && snapshot.selectedPaletteCellIndex < palette.chars.length
+        ? snapshot.selectedPaletteCellIndex
+        : null;
+  }
+
+  function createStampPaletteHistorySnapshot(): StampPaletteHistorySnapshot {
+    return {
+      stampSets: stampSets.map(cloneStampSet),
+      activeStampSetId: activeStampSetId.value,
+      activeStampId: activeStampId.value,
+    };
+  }
+
+  function restoreStampPaletteHistorySnapshot(snapshot: StampPaletteHistorySnapshot) {
+    stampSets.splice(0, stampSets.length, ...snapshot.stampSets.map(cloneStampSet));
+    activeStampSetId.value = stampSets.some((stampSet) => stampSet.id === snapshot.activeStampSetId) ? snapshot.activeStampSetId : (stampSets[0]?.id ?? "");
+
+    const stampSet = activeStampSet.value;
+    activeStampId.value = stampSet?.stamps.some((stamp) => stamp.id === snapshot.activeStampId) ? snapshot.activeStampId : "";
   }
 
   async function copySelectionToClipboard() {
@@ -3798,6 +3998,10 @@ function isBrowserTextFieldTarget(target: EventTarget | null) {
   }
 
   return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+}
+
+function isDialogTarget(target: EventTarget | null) {
+  return document.querySelector('[role="dialog"]') !== null || (target instanceof HTMLElement && target.closest('[role="dialog"]') !== null);
 }
 
 function blurTextEditingTarget() {

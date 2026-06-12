@@ -22,6 +22,7 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
+const modalRef = ref<HTMLElement | null>(null);
 const listRef = ref<HTMLElement | null>(null);
 const editingItems = ref(props.items.map((item) => ({ ...item })));
 const editingItemId = ref<string | null>(null);
@@ -31,6 +32,10 @@ let nextItemNumber = props.items.length + 1;
 let sortable: Sortable | null = null;
 
 onMounted(() => {
+  void nextTick(() => {
+    modalRef.value?.focus();
+  });
+
   if (!listRef.value) {
     return;
   }
@@ -172,12 +177,13 @@ function reorderItems(event: Sortable.SortableEvent) {
     return;
   }
 
-  const [item] = editingItems.value.splice(oldIndex, 1);
+  const item = editingItems.value[oldIndex];
 
   if (!item) {
     return;
   }
 
+  editingItems.value.splice(oldIndex, 1);
   editingItems.value.splice(newIndex, 0, item);
 }
 
@@ -242,7 +248,16 @@ function normalizeEditableListName(name: string) {
 
 <template>
   <div class="confirm-modal-backdrop" role="presentation" @click="$emit('cancel')">
-    <section class="confirm-modal editable-list-modal" role="dialog" aria-modal="true" aria-labelledby="editable-list-title" @click.stop @keydown.esc.stop="$emit('cancel')">
+    <section
+      ref="modalRef"
+      class="confirm-modal editable-list-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="editable-list-title"
+      tabindex="-1"
+      @click.stop
+      @keydown.esc.stop="$emit('cancel')"
+    >
       <header class="editable-list-header">
         <h2 id="editable-list-title">{{ title }}</h2>
         <button class="editable-list-icon-button editable-list-add-button" type="button" :aria-label="getAddButtonLabel()" :title="getAddButtonLabel()" @click="addItem">
