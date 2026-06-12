@@ -26,6 +26,7 @@ const listRef = ref<HTMLElement | null>(null);
 const editingItems = ref(props.items.map((item) => ({ ...item })));
 const editingItemId = ref<string | null>(null);
 const editingItemName = ref("");
+const errorMessage = ref("");
 let nextItemNumber = props.items.length + 1;
 let sortable: Sortable | null = null;
 
@@ -49,7 +50,7 @@ onMounted(() => {
     fallbackTolerance: 4,
     removeCloneOnHide: true,
     onStart() {
-      commitCurrentNameEdit();
+      return commitCurrentNameEdit();
     },
     onEnd(event) {
       reorderItems(event);
@@ -63,6 +64,7 @@ onBeforeUnmount(() => {
 });
 
 function addItem() {
+  errorMessage.value = "";
   const name = createNextName();
   const item = {
     id: createItemId(),
@@ -88,11 +90,15 @@ function removeItem(itemId: string) {
     cancelNameEdit();
   }
 
+  errorMessage.value = "";
   editingItems.value.splice(index, 1);
 }
 
 function apply() {
-  commitCurrentNameEdit();
+  if (!commitCurrentNameEdit() || !validateAllNames()) {
+    return;
+  }
+
   emit(
     "apply",
     editingItems.value.map((item) => ({
@@ -109,6 +115,7 @@ function startNameEdit(item: EditableListItem) {
 
   editingItemId.value = item.id;
   editingItemName.value = item.name;
+  errorMessage.value = "";
   void nextTick(() => {
     const input = document.querySelector<HTMLInputElement>(".editable-list-name-input");
     input?.focus();
@@ -127,16 +134,25 @@ function commitNameEdit(itemId: string, event?: Event) {
 
 function commitCurrentNameEdit(nameOverride?: string) {
   if (editingItemId.value === null) {
-    return;
+    return true;
   }
 
   const item = editingItems.value.find((candidate) => candidate.id === editingItemId.value);
 
   if (item && !item.protected) {
-    item.name = (nameOverride ?? editingItemName.value).trim() || props.newItemLabel;
+    const nextName = (nameOverride ?? editingItemName.value).trim() || props.newItemLabel;
+
+    if (hasDuplicateName(nextName, item.id)) {
+      showDuplicateNameError();
+      return false;
+    }
+
+    item.name = nextName;
   }
 
   cancelNameEdit();
+  errorMessage.value = "";
+  return true;
 }
 
 function cancelNameEdit() {
@@ -145,6 +161,10 @@ function cancelNameEdit() {
 }
 
 function reorderItems(event: Sortable.SortableEvent) {
+  if (errorMessage.value) {
+    return;
+  }
+
   const oldIndex = event.oldDraggableIndex ?? event.oldIndex;
   const newIndex = event.newDraggableIndex ?? event.newIndex;
 
@@ -167,10 +187,10 @@ function createItemId() {
 }
 
 function createNextName() {
-  const existingNames = new Set(editingItems.value.map((item) => item.name.trim()));
+  const existingNames = new Set(editingItems.value.map((item) => normalizeEditableListName(item.name)));
   let name = `${props.newItemLabel} ${nextItemNumber}`;
 
-  while (existingNames.has(name)) {
+  while (existingNames.has(normalizeEditableListName(name))) {
     nextItemNumber += 1;
     name = `${props.newItemLabel} ${nextItemNumber}`;
   }
@@ -181,6 +201,42 @@ function createNextName() {
 
 function getAddButtonLabel() {
   return `Add ${props.newItemLabel}`;
+}
+
+function validateAllNames() {
+  const seenNames = new Set<string>();
+
+  for (const item of editingItems.value) {
+    const normalizedName = normalizeEditableListName(item.name || props.newItemLabel);
+
+    if (seenNames.has(normalizedName)) {
+      showDuplicateNameError();
+      return false;
+    }
+
+    seenNames.add(normalizedName);
+  }
+
+  errorMessage.value = "";
+  return true;
+}
+
+function hasDuplicateName(name: string, itemId: string) {
+  const normalizedName = normalizeEditableListName(name);
+  return editingItems.value.some((item) => item.id !== itemId && normalizeEditableListName(item.name) === normalizedName);
+}
+
+function showDuplicateNameError() {
+  errorMessage.value = "Name already exists.";
+  void nextTick(() => {
+    const input = document.querySelector<HTMLInputElement>(".editable-list-name-input");
+    input?.focus();
+    input?.select();
+  });
+}
+
+function normalizeEditableListName(name: string) {
+  return name.trim().toLocaleLowerCase();
 }
 </script>
 
@@ -233,6 +289,7 @@ function getAddButtonLabel() {
           </div>
         </div>
       </div>
+      <p v-if="errorMessage" class="editable-list-error" role="alert">{{ errorMessage }}</p>
       <footer class="editable-list-footer">
         <div class="confirm-modal-actions">
           <button type="button" @click="$emit('cancel')">Cancel</button>

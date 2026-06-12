@@ -109,7 +109,7 @@ button {
   top: 100%;
   left: 0;
   z-index: 20;
-  min-width: 132px;
+  min-width: 164px;
   padding: 4px 0;
   background: #303030;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
@@ -1531,6 +1531,15 @@ button {
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.editable-list-error {
+  margin: -4px 0 0;
+  padding: 6px 8px;
+  background: #3a2020;
+  color: #ffb8b8;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .editable-list-items {

@@ -63,6 +63,8 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
       :is-unicode-glyph-page-scan-running="aaMaker.isUnicodeGlyphPageScanRunning.value"
       @save-document="openSaveDocumentModal"
       @load-document="aaMaker.loadDocument"
+      @save-library="aaMaker.saveLibrary"
+      @load-library="aaMaker.loadLibrary"
       @export-document="isExportDocumentModalOpen = true"
       @open-settings="openSettingsModal"
       @invert-canvas-background="aaMaker.invertCanvasBackground"

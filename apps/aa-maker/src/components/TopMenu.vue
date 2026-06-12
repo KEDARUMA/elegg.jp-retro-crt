@@ -5,6 +5,8 @@ import appIcon from "../assets/app-icon.png";
 const emit = defineEmits<{
   saveDocument: [];
   loadDocument: [file: File];
+  saveLibrary: [];
+  loadLibrary: [file: File];
   exportDocument: [];
   openSettings: [];
   invertCanvasBackground: [];
@@ -20,6 +22,7 @@ const isFileMenuOpen = ref(false);
 const isImageMenuOpen = ref(false);
 const isDevMenuOpen = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const libraryInputRef = ref<HTMLInputElement | null>(null);
 
 function toggleFileMenu() {
   isFileMenuOpen.value = !isFileMenuOpen.value;
@@ -44,6 +47,11 @@ function requestLoad() {
   isFileMenuOpen.value = false;
 }
 
+function requestLoadLibrary() {
+  libraryInputRef.value?.click();
+  isFileMenuOpen.value = false;
+}
+
 function handleLoadFile(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -55,8 +63,24 @@ function handleLoadFile(event: Event) {
   input.value = "";
 }
 
+function handleLoadLibraryFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+
+  if (file) {
+    emit("loadLibrary", file);
+  }
+
+  input.value = "";
+}
+
 function requestSave() {
   emit("saveDocument");
+  isFileMenuOpen.value = false;
+}
+
+function requestSaveLibrary() {
+  emit("saveLibrary");
   isFileMenuOpen.value = false;
 }
 
@@ -90,10 +114,13 @@ function requestUnicodeGlyphPageScan() {
         <div v-if="isFileMenuOpen" class="menu-dropdown">
           <button type="button" @click="requestLoad">Load</button>
           <button type="button" @click="requestSave">Save</button>
+          <button type="button" @click="requestLoadLibrary">Load Library...</button>
+          <button type="button" @click="requestSaveLibrary">Save Library...</button>
           <button type="button" @click="requestExport">Export</button>
           <button type="button" @click="requestSettings">Settings</button>
         </div>
         <input ref="fileInputRef" class="hidden-file-input" type="file" accept="application/json,.json" @change="handleLoadFile" />
+        <input ref="libraryInputRef" class="hidden-file-input" type="file" accept="application/zip,.zip" @change="handleLoadLibraryFile" />
       </div>
       <div class="menu-item">
         <button type="button" @click="toggleImageMenu">Image</button>

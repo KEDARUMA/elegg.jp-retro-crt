@@ -12,6 +12,7 @@ import { loadStoredAppSettings, saveStoredAppSettings, type AppLanguage } from "
 import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar, setCharWidthMode, shouldFitWideGlyphIntoNarrowCell } from "../model/gridOperations";
+import { LIBRARY_ARCHIVE_FILENAME, createLibraryArchiveBlob, readLibraryArchiveFile, type LibraryCharPalette, type LibraryStampIndexItem, type LibraryStampSet } from "../model/libraryArchive";
 import { reflowDocumentToWidthMode, reflowStampCollectionsToWidthMode } from "../model/reflow";
 import { parseStampMdsSources } from "../model/parseStampMds";
 import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, StampCell, Tool } from "../model/types";
@@ -76,12 +77,6 @@ type StampSet = {
   name: string;
   stamps: Stamp[];
 };
-type StampLibraryIndexItem = {
-  id: string;
-  name: string;
-  file: string;
-};
-
 type StampPreviewCell = {
   x: number;
   y: number;
@@ -220,6 +215,7 @@ export function useAaMaker() {
   const defaultNormalPaletteById = new Map(normalPalettes.map((palette) => [palette.id, { ...palette, chars: [...palette.chars] }]));
   const initialStampSets = createStampSets(parseStampMdsSources(stampSources));
   const defaultStampSetById = new Map(initialStampSets.map((stampSet) => [stampSet.id, { ...stampSet, stamps: [...stampSet.stamps] }]));
+  const stampLibraryFileById = new Map(stampLibraryItems.map((item) => [item.id, item.file]));
   const storedHistory = loadStoredHistoryPalette();
   const palettes = reactive<Palette[]>([
     ...normalPalettes,
@@ -645,6 +641,25 @@ export function useAaMaker() {
     hasUnsavedDocumentChange.value = false;
   }
 
+  function saveLibrary() {
+    downloadBlob(LIBRARY_ARCHIVE_FILENAME, createLibraryArchiveBlob(createSavedLibrary()));
+  }
+
+  async function loadLibrary(file: File) {
+    try {
+      const library = await readLibraryArchiveFile(file);
+
+      if (!library) {
+        window.alert("Load library failed: invalid AA Maker library ZIP.");
+        return;
+      }
+
+      applyLoadedLibrary(library);
+    } catch {
+      window.alert("Load library failed: invalid AA Maker library ZIP.");
+    }
+  }
+
   async function loadDocument(file: File) {
     try {
       const rawText = await file.text();
@@ -854,6 +869,73 @@ export function useAaMaker() {
       stampSets: createEditableListSnapshot(stampSets),
       activeStampSetId: activeStampSetId.value,
     };
+  }
+
+  function createSavedLibrary() {
+    const stampFileById = createStampFileById(stampSets, stampLibraryFileById);
+
+    return {
+      palettes: palettes.filter((palette): palette is NormalPalette => palette.kind === "normal").map(createLibraryPaletteSnapshot),
+      stampSets: stampSets.map((stampSet): LibraryStampSet => ({
+        id: stampSet.id,
+        name: stampSet.name,
+        file: stampFileById.get(stampSet.id) ?? createUniqueStampFilename(stampSet.id, new Set()),
+        stamps: cloneStamps(stampSet.stamps),
+      })),
+    };
+  }
+
+  function applyLoadedLibrary(library: { palettes: LibraryCharPalette[]; stampSets: LibraryStampSet[] }) {
+    const specialPalettes = palettes.filter((palette) => palette.kind !== "normal");
+    const nextNormalPalettes = library.palettes.map(createNormalPaletteFromLibrary);
+
+    palettes.splice(0, palettes.length, ...nextNormalPalettes, ...specialPalettes);
+    selectedPaletteCellIndex.value = null;
+
+    if (!palettes.some((palette) => palette.id === activePaletteId.value)) {
+      activePaletteId.value = palettes[0]?.id ?? "";
+    }
+
+    replaceDefaultNormalPalettes(nextNormalPalettes);
+
+    const nextStampSets = library.stampSets.map((stampSet) => ({
+      id: stampSet.id,
+      name: stampSet.name,
+      stamps: cloneStamps(stampSet.stamps),
+    }));
+
+    stampSets.splice(0, stampSets.length, ...nextStampSets);
+    stampLibraryFileById.clear();
+
+    for (const stampSet of library.stampSets) {
+      stampLibraryFileById.set(stampSet.id, stampSet.file);
+    }
+
+    reflowStampCollectionsToWidthMode(stampSets, widthMode.value);
+    replaceDefaultStampSets(stampSets);
+
+    if (!stampSets.some((stampSet) => stampSet.id === activeStampSetId.value)) {
+      activeStampSetId.value = stampSets[0]?.id ?? "";
+    }
+
+    activeStampId.value = "";
+    hasUnsavedDocumentChange.value = true;
+  }
+
+  function replaceDefaultNormalPalettes(nextPalettes: NormalPalette[]) {
+    defaultNormalPaletteById.clear();
+
+    for (const palette of nextPalettes) {
+      defaultNormalPaletteById.set(palette.id, cloneNormalPalette(palette));
+    }
+  }
+
+  function replaceDefaultStampSets(nextStampSets: StampSet[]) {
+    defaultStampSetById.clear();
+
+    for (const stampSet of nextStampSets) {
+      defaultStampSetById.set(stampSet.id, cloneStampSet(stampSet));
+    }
   }
 
   function getEditableNormalPalette() {
@@ -3030,6 +3112,7 @@ export function useAaMaker() {
     moveLayer,
     renameLayer,
     saveDocument,
+    saveLibrary,
     scanAllUnicodeGlyphPages,
     selectPalette,
     selectPaletteChar,
@@ -3057,6 +3140,7 @@ export function useAaMaker() {
     openSelectedFGCColorPicker,
     openTextEditor,
     loadDocument,
+    loadLibrary,
     stopDrawing,
     updateTextEditorValue,
     toggleLayerLocked,
@@ -3128,6 +3212,84 @@ function createEmptyNormalPalette(id: string, name: string): NormalPalette {
     columns: 16,
     chars: Array.from({ length: EMPTY_NORMAL_PALETTE_CELL_COUNT }, () => null),
   };
+}
+
+function createLibraryPaletteSnapshot(palette: NormalPalette): LibraryCharPalette {
+  return {
+    id: palette.id,
+    name: palette.name,
+    ...(palette.columns === undefined ? {} : { columns: palette.columns }),
+    ...(palette.startCode === undefined ? {} : { startCode: palette.startCode }),
+    chars: [...palette.chars],
+  };
+}
+
+function createNormalPaletteFromLibrary(palette: LibraryCharPalette): NormalPalette {
+  return {
+    kind: "normal",
+    id: palette.id,
+    name: getEditableListItemName(palette.name, "Palette"),
+    ...(palette.columns === undefined ? {} : { columns: palette.columns }),
+    ...(palette.startCode === undefined ? {} : { startCode: palette.startCode }),
+    chars: [...palette.chars],
+  };
+}
+
+function createStampFileById(stampSets: StampSet[], currentFileById: Map<string, string>) {
+  const usedFiles = new Set<string>();
+  const fileById = new Map<string, string>();
+
+  for (const stampSet of stampSets) {
+    const preferredFile = currentFileById.get(stampSet.id) ?? stampSet.name;
+    const file = createUniqueStampFilename(preferredFile, usedFiles);
+
+    fileById.set(stampSet.id, file);
+  }
+
+  return fileById;
+}
+
+function createUniqueStampFilename(value: string, usedFiles: Set<string>) {
+  const baseName = toSafeLibraryBaseName(value.replace(/\.mds$/i, ""));
+  let file = `${baseName}.mds`;
+  let index = 2;
+
+  while (usedFiles.has(file)) {
+    file = `${baseName}-${index}.mds`;
+    index += 1;
+  }
+
+  usedFiles.add(file);
+  return file;
+}
+
+function toSafeLibraryBaseName(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
+      .replace(/\.+$/g, "")
+      .replace(/^-+|-+$/g, "") || "stamp-set"
+  );
+}
+
+function cloneNormalPalette(palette: NormalPalette): NormalPalette {
+  return {
+    ...palette,
+    chars: [...palette.chars],
+  };
+}
+
+function cloneStampSet(stampSet: StampSet): StampSet {
+  return {
+    id: stampSet.id,
+    name: stampSet.name,
+    stamps: cloneStamps(stampSet.stamps),
+  };
+}
+
+function cloneStamps(stamps: Stamp[]): Stamp[] {
+  return JSON.parse(JSON.stringify(stamps)) as Stamp[];
 }
 
 function getContextMenuPosition(x: number, y: number) {
@@ -3385,7 +3547,10 @@ function createUnicodeGlyphScanFilename(firstPage: number, pageCount: number) {
 }
 
 function downloadTextFile(filename: string, content: string, mimeType: string) {
-  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  downloadBlob(filename, new Blob([content], { type: `${mimeType};charset=utf-8` }));
+}
+
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
