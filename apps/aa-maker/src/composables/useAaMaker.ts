@@ -1648,7 +1648,12 @@ export function useAaMaker() {
     }
 
     event.preventDefault();
+    const textDraftBeforeBlur = textDraft.value;
     blurTextEditingTarget();
+
+    if (textDraftBeforeBlur?.value.length) {
+      return;
+    }
 
     if (toolState.highlight.kind === "rect") {
       if (!isPointInHighlight(x, y)) {

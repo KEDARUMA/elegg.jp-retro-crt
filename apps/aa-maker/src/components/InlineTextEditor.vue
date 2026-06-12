@@ -99,6 +99,19 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+function handleBlur() {
+  if (!props.draft) {
+    return;
+  }
+
+  if (props.draft.value.length > 0) {
+    emit("confirm");
+    return;
+  }
+
+  emit("cancel");
+}
+
 function insertTextAtCursor(text: string) {
   const editor = editorRef.value;
 
@@ -175,6 +188,7 @@ function countEditorLines(value: string) {
       autocapitalize="off"
       autocomplete="off"
       autocorrect="off"
+      @blur="handleBlur"
       @input="handleInput"
       @keydown="handleKeydown"
     ></textarea>

@@ -36,7 +36,7 @@ button {
     "menu menu menu"
     "tools editor side"
     "status status side";
-  grid-template-columns: 34px minmax(636px, 1fr) 253px;
+  grid-template-columns: 34px minmax(628px, 1fr) 296px;
   grid-template-rows: 26px minmax(0, 1fr) 26px;
   gap: 0;
   height: 100vh;
@@ -135,7 +135,7 @@ button {
   grid-area: tools;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: stretch;
   min-height: 0;
   padding: 0;
@@ -230,7 +230,7 @@ button {
 .selected-char-wrap {
   position: relative;
   width: 34px;
-  margin-bottom: 24px;
+  margin: 0;
 }
 
 .selected-char {
@@ -822,6 +822,7 @@ button {
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 0;
+  width: calc(16px * 16 + 16px);
   background: var(--aa-palette-canvas-color, #ffffff);
   padding: 8px 8px 0;
 }
@@ -1007,6 +1008,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
+  width: calc(16px * 16);
   min-height: 128px;
   max-height: 236px;
   margin-top: 6px;

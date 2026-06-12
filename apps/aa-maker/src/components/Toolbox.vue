@@ -34,30 +34,30 @@ function getToolTitle(tool: ToolItem) {
 <template>
   <aside class="toolbox" aria-label="Tools" @contextmenu.prevent>
     <div class="tool-list">
-      <button
-        v-for="tool in tools"
-        :key="tool.id"
-        class="tool-button"
-        :class="{ 'is-selected': tool.id === activeTool }"
-        type="button"
-        :disabled="!tool.implemented"
-        :title="tool.implemented ? getToolTitle(tool) : `${getToolTitle(tool)} は未実装です`"
-        :aria-label="getToolTitle(tool)"
-        @click="$emit('selectTool', tool.id)"
-      >
-        <span class="tool-icon" aria-hidden="true" v-html="tool.icon"></span>
-      </button>
-    </div>
-    <div class="selected-char-wrap">
-      <SelectedChar
-        :selected-char="selectedChar"
-        :selected-foreground-color="selectedForegroundColor"
-        :selected-background-color="selectedBackgroundColor"
-        :canvas-background-color="canvasBackgroundColor"
-        :attention-key="selectedCharAttentionKey"
-        @open-foreground-color="$emit('openSelectedForegroundColorPicker')"
-        @open-background-color="$emit('openSelectedBackgroundColorPicker')"
-      />
+      <template v-for="tool in tools" :key="tool.id">
+        <button
+          class="tool-button"
+          :class="{ 'is-selected': tool.id === activeTool }"
+          type="button"
+          :disabled="!tool.implemented"
+          :title="tool.implemented ? getToolTitle(tool) : `${getToolTitle(tool)} は未実装です`"
+          :aria-label="getToolTitle(tool)"
+          @click="$emit('selectTool', tool.id)"
+        >
+          <span class="tool-icon" aria-hidden="true" v-html="tool.icon"></span>
+        </button>
+        <div v-if="tool.id === 'pen'" class="selected-char-wrap">
+          <SelectedChar
+            :selected-char="selectedChar"
+            :selected-foreground-color="selectedForegroundColor"
+            :selected-background-color="selectedBackgroundColor"
+            :canvas-background-color="canvasBackgroundColor"
+            :attention-key="selectedCharAttentionKey"
+            @open-foreground-color="$emit('openSelectedForegroundColorPicker')"
+            @open-background-color="$emit('openSelectedBackgroundColorPicker')"
+          />
+        </div>
+      </template>
     </div>
   </aside>
 </template>
