@@ -5,11 +5,9 @@ import penIcon from "../assets/icons/pen.svg?raw";
 import selectIcon from "../assets/icons/select.svg?raw";
 import stampIcon from "../assets/icons/stamp.svg?raw";
 import textIcon from "../assets/icons/text.svg?raw";
-import charPalettes from "../data/char-palettes.json";
-import gikoNekoStampsMds from "../data/stamps/giko-neko.mds?raw";
-import monarStampsMds from "../data/stamps/monar.mds?raw";
-import speechBubbleStampsMds from "../data/stamps/speech-bubble.mds?raw";
-import unicodeGlyphPages from "../data/unicode-glyph-pages.json";
+import charPalettes from "../data/library/char-palettes.json";
+import stampLibraryIndex from "../data/library/stamps/index.json";
+import unicodeGlyphPages from "../data/static/unicode-glyph-pages.json";
 import { loadStoredAppSettings, saveStoredAppSettings, type AppLanguage } from "../model/appSettings";
 import { composeDocument } from "../model/composeLayers";
 import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
@@ -77,6 +75,11 @@ type StampSet = {
   id: string;
   name: string;
   stamps: Stamp[];
+};
+type StampLibraryIndexItem = {
+  id: string;
+  name: string;
+  file: string;
 };
 
 type StampPreviewCell = {
@@ -183,16 +186,17 @@ const UNICODE_GLYPH_SCAN_ALL_PAGE_COUNT = Math.ceil((UNICODE_GLYPH_SCAN_MAX_CODE
 const SIMILAR_GLYPH_DEFAULT_FONT_FAMILY = "\"MS Gothic\", monospace";
 const SIMILAR_GLYPH_DEFAULT_THRESHOLD = 28;
 const SIMILAR_GLYPH_DEFAULT_MAX_RESULTS = 256;
-const stampSetNames: Record<string, string> = {
-  "giko-neko": "Giko Neko",
-  monar: "Monar",
-  "speech-bubble": "Speech Bubble",
-};
-const stampSources = [
-  { id: "giko-neko", name: "Giko Neko", content: gikoNekoStampsMds },
-  { id: "monar", name: "Monar", content: monarStampsMds },
-  { id: "speech-bubble", name: "Speech Bubble", content: speechBubbleStampsMds },
-];
+const stampMdsModules = import.meta.glob("../data/library/stamps/*.mds", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+const stampLibraryItems = stampLibraryIndex as StampLibraryIndexItem[];
+const stampSources = stampLibraryItems.flatMap((item) => {
+  const content = stampMdsModules[`../data/library/stamps/${item.file}`];
+
+  if (typeof content !== "string") {
+    return [];
+  }
+
+  return [{ id: item.id, name: item.name, content }];
+});
 const colorSchemes: ColorScheme[] = [
   {
     id: "basic",
@@ -3724,6 +3728,7 @@ function normalizeHistoryChars(value: unknown, fallback: (string | null)[]) {
 
 function createStampSets(sourceStamps: Stamp[]): StampSet[] {
   const groupedStamps = new Map<string, Stamp[]>();
+  const stampSetNameById = new Map(stampLibraryItems.map((item) => [item.id, item.name]));
 
   for (const stamp of sourceStamps) {
     const stampSetId = stamp.id.replace(/-\d+$/, "");
@@ -3734,7 +3739,7 @@ function createStampSets(sourceStamps: Stamp[]): StampSet[] {
 
   return Array.from(groupedStamps, ([id, items]) => ({
     id,
-    name: stampSetNames[id] ?? id,
+    name: stampSetNameById.get(id) ?? id,
     stamps: items,
   }));
 }

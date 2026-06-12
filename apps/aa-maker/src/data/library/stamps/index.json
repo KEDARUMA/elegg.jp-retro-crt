@@ -1,0 +1,17 @@
+[
+  {
+    "id": "giko-neko",
+    "name": "Giko Neko",
+    "file": "giko-neko.mds"
+  },
+  {
+    "id": "monar",
+    "name": "Monar",
+    "file": "monar.mds"
+  },
+  {
+    "id": "speech-bubble",
+    "name": "Speech Bubble",
+    "file": "speech-bubble.mds"
+  }
+]
