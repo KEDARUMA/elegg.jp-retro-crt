@@ -11,6 +11,7 @@ import Toolbox from "./components/Toolbox.vue";
 import TopMenu from "./components/TopMenu.vue";
 import { AA_MAKER_VERSION } from "./appMeta";
 import { useAaMaker } from "./composables/useAaMaker";
+import type { ImageToAsciiApplyGrid } from "./search/imageToAsciiMatching";
 
 const aaMaker = useAaMaker();
 type ExportFormat = "plain" | "ansi" | "mds" | "html";
@@ -56,6 +57,11 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
   }
 
   isSettingsCanvasColorPickerOpen.value = false;
+}
+
+function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
+  aaMaker.applyImageToAsciiGrid(cells);
+  isImageToAsciiArtModalOpen.value = false;
 }
 </script>
 
@@ -209,6 +215,8 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
     />
     <ImageToAsciiArtModal
       v-if="isImageToAsciiArtModalOpen"
+      :width-mode="aaMaker.widthMode.value"
+      @apply="applyImageToAsciiArt"
       @close="isImageToAsciiArtModalOpen = false"
     />
     <SettingsModal

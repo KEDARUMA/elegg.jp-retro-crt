@@ -17,6 +17,7 @@ import { reflowDocumentToWidthMode, reflowStampCollectionsToWidthMode } from "..
 import { parseStampMdsSources } from "../model/parseStampMds";
 import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, StampCell, Tool } from "../model/types";
 import type { WidthMode } from "../model/widthMode";
+import type { ImageToAsciiApplyGrid } from "../search/imageToAsciiMatching";
 import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
 import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
 
@@ -3319,6 +3320,29 @@ export function useAaMaker() {
     });
   }
 
+  function applyImageToAsciiGrid(cells: ImageToAsciiApplyGrid) {
+    const layer = getEditableActiveLayer();
+
+    if (!layer) {
+      return false;
+    }
+
+    recordDocumentHistory();
+    clearLayerRect(layer, 0, 0, GRID_COLUMNS, GRID_ROWS);
+
+    cells.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        if (!cell || cell.char === " " || x >= GRID_COLUMNS || y >= GRID_ROWS) {
+          return;
+        }
+
+        placeChar(layer, x, y, cell.char, toolState.selectedFGC, null, cell.width);
+      });
+    });
+
+    return true;
+  }
+
   function clearLayerRect(layer: Layer, originX: number, originY: number, width: number, height: number) {
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
@@ -3538,6 +3562,7 @@ export function useAaMaker() {
     renameStamp,
     applyPaletteList,
     applyStampSetList,
+    applyImageToAsciiGrid,
     closeSelectedColorPicker,
     closeTextEditor,
     openSelectionBGCColorPicker,
