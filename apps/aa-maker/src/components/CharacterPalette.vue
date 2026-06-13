@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import clearIcon from "../assets/icons/clear.svg?raw";
+import brushIcon from "../assets/icons/brush.svg?raw";
 import editIcon from "../assets/icons/edit.svg?raw";
+import penIcon from "../assets/icons/pen.svg?raw";
 import plusIcon from "../assets/icons/plus.svg?raw";
 import trashIcon from "../assets/icons/trash.svg?raw";
 import { getCharWidth, getFirstGrapheme, shouldFitWideGlyphIntoNarrowCell } from "../model/gridOperations";
@@ -44,10 +47,10 @@ type SimilarPalette = {
   id: string;
   name: string;
   query: string;
+  targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
   threshold: number;
-  widthMatch: boolean;
   maxResults: number;
   results: SimilarGlyphSearchResult[];
   isSearching: boolean;
@@ -58,6 +61,8 @@ type SimilarPalette = {
 };
 
 type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
+type SimilarBitmapBrush = "hard" | "soft";
+type SimilarBitmapDrawMode = "draw" | "erase";
 
 const props = defineProps<{
   palettes: Palette[];
@@ -85,8 +90,10 @@ const emit = defineEmits<{
   updateSimilarFontFamily: [fontFamily: string];
   updateSimilarCanvasSize: [canvasSize: number];
   updateSimilarThreshold: [threshold: number];
-  updateSimilarWidthMatch: [widthMatch: boolean];
   updateSimilarMaxResults: [maxResults: number];
+  beginSimilarBitmapStroke: [];
+  paintSimilarBitmapPixel: [index: number, brush: SimilarBitmapBrush, erase: boolean];
+  clearSimilarBitmap: [];
   startSimilarSearch: [];
   cancelSimilarSearch: [];
   editPaletteList: [];
@@ -99,6 +106,18 @@ const UNICODE_ROW_HEIGHT = 16;
 const UNICODE_VISIBLE_ROWS = 24;
 const unicodeScrollRef = ref<HTMLElement | null>(null);
 const isKeyboardComposing = ref(false);
+const similarBitmapBrush = ref<SimilarBitmapBrush>("hard");
+const similarBitmapDrawMode = ref<SimilarBitmapDrawMode | null>(null);
+
+onMounted(() => {
+  window.addEventListener("pointerup", stopSimilarBitmapDraw);
+  window.addEventListener("pointercancel", stopSimilarBitmapDraw);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("pointerup", stopSimilarBitmapDraw);
+  window.removeEventListener("pointercancel", stopSimilarBitmapDraw);
+});
 
 const unicodeTotalRows = Math.ceil((UNICODE_MAX_CODE - UNICODE_MIN_CODE + 1) / UNICODE_COLUMNS);
 const unicodeSpacerStyle = computed(() => ({
@@ -193,6 +212,57 @@ function getUnicodePalette() {
 
 function getSimilarResultTitle(result: SimilarGlyphSearchResult) {
   return `${getCodeLabel(result.codePoint)} score:${result.score}`;
+}
+
+function getSimilarBitmapStyle(palette: SimilarPalette) {
+  return {
+    "--similar-bitmap-size": String(palette.canvasSize),
+  };
+}
+
+function getSimilarBitmapCellStyle(alpha: number) {
+  return {
+    backgroundColor: `rgba(0, 0, 0, ${Math.max(0, Math.min(255, alpha)) / 255})`,
+  };
+}
+
+function getSimilarBitmapCellTitle(index: number, palette: SimilarPalette) {
+  const x = index % palette.canvasSize;
+  const y = Math.floor(index / palette.canvasSize);
+  return `${x},${y}`;
+}
+
+function selectSimilarBitmapBrush(brush: SimilarBitmapBrush) {
+  similarBitmapBrush.value = brush;
+}
+
+function handleSimilarBitmapPointerDown(index: number, event: PointerEvent) {
+  if (props.activePalette.kind !== "similar" || props.activePalette.isSearching) {
+    return;
+  }
+
+  event.preventDefault();
+  const mode: SimilarBitmapDrawMode = event.button === 2 ? "erase" : "draw";
+  similarBitmapDrawMode.value = mode;
+  emit("beginSimilarBitmapStroke");
+  emit("paintSimilarBitmapPixel", index, similarBitmapBrush.value, mode === "erase");
+}
+
+function handleSimilarBitmapPointerEnter(index: number, event: PointerEvent) {
+  if (similarBitmapDrawMode.value === null || props.activePalette.kind !== "similar" || props.activePalette.isSearching) {
+    return;
+  }
+
+  if (event.buttons === 0) {
+    stopSimilarBitmapDraw();
+    return;
+  }
+
+  emit("paintSimilarBitmapPixel", index, similarBitmapBrush.value, similarBitmapDrawMode.value === "erase");
+}
+
+function stopSimilarBitmapDraw() {
+  similarBitmapDrawMode.value = null;
 }
 
 function getUnicodeChar(code: number) {
@@ -374,7 +444,7 @@ function parseUnicodeQuery(query: string) {
     </div>
 
     <div v-else-if="activePalette.kind === 'similar'" class="similar-palette">
-      <div class="similar-search-row">
+      <div class="similar-query-font-row">
         <input
           class="palette-text-input"
           :value="activePalette.query"
@@ -383,11 +453,7 @@ function parseUnicodeQuery(query: string) {
           :disabled="activePalette.isSearching"
           @input="$emit('updateSimilarQuery', ($event.target as HTMLInputElement).value)"
         />
-        <button class="palette-action-button" type="button" :disabled="activePalette.isSearching" @click="$emit('startSimilarSearch')">Search</button>
-        <button class="palette-action-button" type="button" :disabled="!activePalette.isSearching" @click="$emit('cancelSimilarSearch')">Cancel</button>
-      </div>
-      <div class="similar-params">
-        <label class="similar-param similar-param--wide">
+        <label class="similar-param">
           <span>Font</span>
           <input
             class="palette-text-input"
@@ -396,6 +462,8 @@ function parseUnicodeQuery(query: string) {
             @input="$emit('updateSimilarFontFamily', ($event.target as HTMLInputElement).value)"
           />
         </label>
+      </div>
+      <div class="similar-size-row">
         <label class="similar-param">
           <span>Size</span>
           <select
@@ -408,6 +476,69 @@ function parseUnicodeQuery(query: string) {
             <option :value="32">32</option>
           </select>
         </label>
+      </div>
+      <div class="similar-bitmap-panel">
+        <div class="similar-bitmap-header">
+          <span>Bitmap</span>
+        </div>
+        <div class="similar-bitmap-body">
+          <div
+            class="similar-bitmap-grid"
+            :class="{ 'is-disabled': activePalette.isSearching }"
+            :style="getSimilarBitmapStyle(activePalette)"
+            aria-label="Similar glyph bitmap buffer"
+            @contextmenu.prevent
+            @pointerleave="stopSimilarBitmapDraw"
+          >
+            <button
+              v-for="(alpha, index) in activePalette.targetBitmap"
+              :key="`similar-bitmap-${activePalette.canvasSize}-${index}`"
+              class="similar-bitmap-cell"
+              type="button"
+              :disabled="activePalette.isSearching"
+              :title="getSimilarBitmapCellTitle(index, activePalette)"
+              :style="getSimilarBitmapCellStyle(alpha)"
+              @pointerdown="handleSimilarBitmapPointerDown(index, $event)"
+              @pointerenter="handleSimilarBitmapPointerEnter(index, $event)"
+            ></button>
+          </div>
+          <div class="similar-bitmap-tools" role="toolbar" aria-label="Bitmap tools">
+            <button
+              class="similar-bitmap-tool-button"
+              :class="{ 'is-selected': similarBitmapBrush === 'hard' }"
+              type="button"
+              :disabled="activePalette.isSearching"
+              title="Hard pen"
+              aria-label="Hard pen"
+              @click="selectSimilarBitmapBrush('hard')"
+            >
+              <span class="similar-bitmap-tool-icon" aria-hidden="true" v-html="penIcon"></span>
+            </button>
+            <button
+              class="similar-bitmap-tool-button"
+              :class="{ 'is-selected': similarBitmapBrush === 'soft' }"
+              type="button"
+              :disabled="activePalette.isSearching"
+              title="Soft brush"
+              aria-label="Soft brush"
+              @click="selectSimilarBitmapBrush('soft')"
+            >
+              <span class="similar-bitmap-tool-icon" aria-hidden="true" v-html="brushIcon"></span>
+            </button>
+            <button
+              class="similar-bitmap-tool-button"
+              type="button"
+              :disabled="activePalette.isSearching"
+              title="Clear bitmap"
+              aria-label="Clear bitmap"
+              @click="$emit('clearSimilarBitmap')"
+            >
+              <span class="similar-bitmap-tool-icon" aria-hidden="true" v-html="clearIcon"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="similar-params">
         <label class="similar-param">
           <span>Threshold</span>
           <input
@@ -434,15 +565,10 @@ function parseUnicodeQuery(query: string) {
             @input="$emit('updateSimilarMaxResults', Number(($event.target as HTMLInputElement).value))"
           />
         </label>
-        <label class="similar-check">
-          <input
-            type="checkbox"
-            :checked="activePalette.widthMatch"
-            :disabled="activePalette.isSearching"
-            @change="$emit('updateSimilarWidthMatch', ($event.target as HTMLInputElement).checked)"
-          />
-          <span>Width</span>
-        </label>
+      </div>
+      <div class="similar-search-row">
+        <button class="palette-action-button" type="button" :disabled="activePalette.isSearching" @click="$emit('startSimilarSearch')">Search</button>
+        <button class="palette-action-button" type="button" :disabled="!activePalette.isSearching" @click="$emit('cancelSimilarSearch')">Cancel</button>
       </div>
       <div class="similar-status">
         <span>{{ activePalette.status }}</span>

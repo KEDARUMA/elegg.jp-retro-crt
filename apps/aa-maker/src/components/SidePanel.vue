@@ -54,10 +54,10 @@ type SimilarPalette = {
   id: string;
   name: string;
   query: string;
+  targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
   threshold: number;
-  widthMatch: boolean;
   maxResults: number;
   results: SimilarGlyphSearchResult[];
   isSearching: boolean;
@@ -68,6 +68,7 @@ type SimilarPalette = {
 };
 
 type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
+type SimilarBitmapBrush = "hard" | "soft";
 
 type StampSet = {
   id: string;
@@ -131,8 +132,10 @@ const emit = defineEmits<{
   updateSimilarFontFamily: [fontFamily: string];
   updateSimilarCanvasSize: [canvasSize: number];
   updateSimilarThreshold: [threshold: number];
-  updateSimilarWidthMatch: [widthMatch: boolean];
   updateSimilarMaxResults: [maxResults: number];
+  beginSimilarBitmapStroke: [];
+  paintSimilarBitmapPixel: [index: number, brush: SimilarBitmapBrush, erase: boolean];
+  clearSimilarBitmap: [];
   startSimilarSearch: [];
   cancelSimilarSearch: [];
   selectLayer: [layerId: string];
@@ -356,8 +359,10 @@ function getStampCellStyle(cell: StampCell | null) {
       @update-similar-font-family="(fontFamily) => $emit('updateSimilarFontFamily', fontFamily)"
       @update-similar-canvas-size="(canvasSize) => $emit('updateSimilarCanvasSize', canvasSize)"
       @update-similar-threshold="(threshold) => $emit('updateSimilarThreshold', threshold)"
-      @update-similar-width-match="(widthMatch) => $emit('updateSimilarWidthMatch', widthMatch)"
       @update-similar-max-results="(maxResults) => $emit('updateSimilarMaxResults', maxResults)"
+      @begin-similar-bitmap-stroke="$emit('beginSimilarBitmapStroke')"
+      @paint-similar-bitmap-pixel="(index, brush, erase) => $emit('paintSimilarBitmapPixel', index, brush, erase)"
+      @clear-similar-bitmap="$emit('clearSimilarBitmap')"
       @start-similar-search="$emit('startSimilarSearch')"
       @cancel-similar-search="$emit('cancelSimilarSearch')"
       @edit-palette-list="openPaletteListEditor"

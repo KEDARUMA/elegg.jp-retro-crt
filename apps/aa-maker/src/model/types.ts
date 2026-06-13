@@ -112,10 +112,10 @@ export type UnicodePalette = {
 export type SimilarPalette = {
   kind: "similar";
   query: string;
+  targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
   threshold: number;
-  widthMatch: boolean;
   maxResults: number;
   results: {
     char: string;

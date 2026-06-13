@@ -951,8 +951,23 @@ button {
 
 .similar-search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
+  margin-top: 6px;
+}
+
+.similar-query-font-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  align-items: end;
+  gap: 4px;
+}
+
+.similar-size-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  margin-top: 6px;
 }
 
 .palette-action-button {
@@ -976,8 +991,7 @@ button {
   margin-top: 6px;
 }
 
-.similar-param,
-.similar-check {
+.similar-param {
   display: grid;
   gap: 2px;
   min-width: 0;
@@ -989,9 +1003,97 @@ button {
   grid-column: 1 / -1;
 }
 
-.similar-check {
-  grid-template-columns: auto minmax(0, 1fr);
+.similar-bitmap-panel {
+  margin-top: 6px;
+}
+
+.similar-bitmap-header {
+  display: flex;
   align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: #eeeeee;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.similar-bitmap-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.similar-bitmap-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.similar-bitmap-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #eeeeee;
+  background: transparent;
+  cursor: pointer;
+}
+
+.similar-bitmap-tool-button.is-selected {
+  border-color: #cfcfcf;
+  background: #4d4d4d;
+}
+
+.similar-bitmap-tool-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.similar-bitmap-tool-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
+.similar-bitmap-tool-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.similar-bitmap-grid {
+  --similar-bitmap-display-size: 160px;
+  display: grid;
+  grid-template-columns: repeat(var(--similar-bitmap-size), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--similar-bitmap-size), minmax(0, 1fr));
+  width: var(--similar-bitmap-display-size);
+  height: var(--similar-bitmap-display-size);
+  border: 1px solid #666666;
+  background: #ffffff;
+  touch-action: none;
+  user-select: none;
+}
+
+.similar-bitmap-grid.is-disabled {
+  opacity: 0.65;
+}
+
+.similar-bitmap-cell {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px solid rgba(0, 0, 0, 0.08);
+  background: transparent;
+}
+
+.similar-bitmap-cell:disabled {
+  cursor: default;
 }
 
 .similar-status {
@@ -1008,12 +1110,14 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
-  width: calc(16px * 16);
+  box-sizing: border-box;
+  width: 100%;
   min-height: 128px;
   max-height: 236px;
   margin-top: 6px;
   background: var(--aa-palette-canvas-color, #ffffff);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .stamp-list {

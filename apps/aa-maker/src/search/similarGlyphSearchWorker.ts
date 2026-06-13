@@ -15,11 +15,10 @@ type WorkerRequest = {
   maxCodePoint: number;
   targetChar: string;
   targetCodePoint: number;
-  targetWidth: 1 | 2;
+  targetBitmap?: number[];
   fontFamily: string;
   canvasSize: number;
   threshold: number;
-  widthMatch: boolean;
   widthMode: WidthMode;
 };
 
@@ -66,7 +65,7 @@ workerScope.onmessage = (event) => {
 
 function searchSimilarGlyphs(request: WorkerRequest) {
   const renderer = createGlyphRenderer(request.canvasSize, request.fontFamily, request.widthMode);
-  const targetImage = renderer.render(request.targetChar);
+  const targetImage = request.targetBitmap ? createGlyphImageFromAlpha(request.targetBitmap, request.canvasSize) : renderer.render(request.targetChar);
   const results: SimilarGlyphSearchResult[] = [];
   let checkedPageCount = 0;
   let checkedCodePointCount = 0;
@@ -91,10 +90,6 @@ function searchSimilarGlyphs(request: WorkerRequest) {
 
       const char = String.fromCodePoint(codePoint);
       const width = renderer.measureWidth(char);
-
-      if (request.widthMatch && width !== request.targetWidth) {
-        continue;
-      }
 
       const image = renderer.render(char);
 
@@ -192,16 +187,17 @@ function renderNormalizedGlyph(
   }
 
   normalizedContext.clearRect(0, 0, canvasSize, canvasSize);
+  const targetRect = getAspectFitRect(bounds.width, bounds.height, canvasSize);
   normalizedContext.drawImage(
     sourceContext.canvas,
     bounds.x,
     bounds.y,
     bounds.width,
     bounds.height,
-    1,
-    1,
-    Math.max(1, canvasSize - 2),
-    Math.max(1, canvasSize - 2),
+    targetRect.x,
+    targetRect.y,
+    targetRect.width,
+    targetRect.height,
   );
 
   const normalizedData = normalizedContext.getImageData(0, 0, canvasSize, canvasSize).data;
@@ -220,6 +216,30 @@ function renderNormalizedGlyph(
       inkPixelCount += 1;
     }
   }
+
+  return inkPixelCount > 0 ? { alpha, bits, inkPixelCount } : null;
+}
+
+function createGlyphImageFromAlpha(bitmap: number[], canvasSize: number): GlyphImage | null {
+  if (bitmap.length !== canvasSize * canvasSize) {
+    return null;
+  }
+
+  const alpha = new Uint8ClampedArray(canvasSize * canvasSize);
+  let bits = "";
+  let inkPixelCount = 0;
+
+  bitmap.forEach((rawValue, index) => {
+    const value = Math.max(0, Math.min(255, Math.round(rawValue)));
+    const hasInk = value > 12;
+
+    alpha[index] = value;
+    bits += hasInk ? "1" : "0";
+
+    if (hasInk) {
+      inkPixelCount += 1;
+    }
+  });
 
   return inkPixelCount > 0 ? { alpha, bits, inkPixelCount } : null;
 }
@@ -254,6 +274,20 @@ function getInkBounds(data: Uint8ClampedArray, size: number) {
     y: minY,
     width: maxX - minX + 1,
     height: maxY - minY + 1,
+  };
+}
+
+function getAspectFitRect(sourceWidth: number, sourceHeight: number, canvasSize: number) {
+  const maxSize = Math.max(1, canvasSize - 2);
+  const scale = Math.min(maxSize / Math.max(1, sourceWidth), maxSize / Math.max(1, sourceHeight));
+  const width = Math.max(1, sourceWidth * scale);
+  const height = Math.max(1, sourceHeight * scale);
+
+  return {
+    x: (canvasSize - width) / 2,
+    y: (canvasSize - height) / 2,
+    width,
+    height,
   };
 }
 

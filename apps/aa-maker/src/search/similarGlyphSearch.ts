@@ -23,11 +23,10 @@ export type UnicodeGlyphPageData = {
 export type SimilarGlyphSearchOptions = {
   pageData: UnicodeGlyphPageData;
   targetChar: string;
-  targetWidth: 1 | 2;
+  targetBitmap?: number[];
   fontFamily: string;
   canvasSize: number;
   threshold: number;
-  widthMatch: boolean;
   maxResults: number;
   workerCount: number;
   widthMode: WidthMode;
@@ -52,11 +51,10 @@ type WorkerRequest = {
   maxCodePoint: number;
   targetChar: string;
   targetCodePoint: number;
-  targetWidth: 1 | 2;
+  targetBitmap?: number[];
   fontFamily: string;
   canvasSize: number;
   threshold: number;
-  widthMatch: boolean;
   widthMode: WidthMode;
 };
 
@@ -96,82 +94,100 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
   const pageChunks = createPageChunks(pages, workerCount);
   const workers: Worker[] = [];
   const workerProgress = pageChunks.map(() => ({ checkedPageCount: 0, checkedCodePointCount: 0, done: false }));
+  const targetBitmap = options.targetBitmap ? [...options.targetBitmap] : undefined;
   let cancelled = false;
   let resultCount = 0;
 
-  pageChunks.forEach((chunk, index) => {
-    const worker = new Worker(new URL("./similarGlyphSearchWorker.ts", import.meta.url), { type: "module" });
-    workers.push(worker);
+  callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length));
 
-    worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-      const message = event.data;
-      const progress = workerProgress[message.id];
+  if (pages.length === 0) {
+    queueMicrotask(() => finish(false));
 
-      if (!progress || cancelled) {
-        return;
-      }
+    return {
+      cancel() {
+        finish(true);
+      },
+    };
+  }
 
-      if (message.type === "batch") {
+  try {
+    pageChunks.forEach((chunk, index) => {
+      const worker = new Worker(new URL("./similarGlyphSearchWorker.ts", import.meta.url), { type: "module" });
+      workers.push(worker);
+
+      worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+        const message = event.data;
+        const progress = workerProgress[message.id];
+
+        if (!progress || cancelled) {
+          return;
+        }
+
+        if (message.type === "batch") {
+          progress.checkedPageCount = message.checkedPageCount;
+          progress.checkedCodePointCount = message.checkedCodePointCount;
+
+          const availableCount = options.maxResults - resultCount;
+          const nextResults = message.results.slice(0, availableCount);
+
+          if (nextResults.length > 0) {
+            resultCount += nextResults.length;
+            callbacks.onResults(nextResults);
+            callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length));
+          }
+
+          if (resultCount >= options.maxResults) {
+            finish(true);
+          }
+
+          return;
+        }
+
         progress.checkedPageCount = message.checkedPageCount;
         progress.checkedCodePointCount = message.checkedCodePointCount;
 
-        const availableCount = options.maxResults - resultCount;
-        const nextResults = message.results.slice(0, availableCount);
-
-        if (nextResults.length > 0) {
-          resultCount += nextResults.length;
-          callbacks.onResults(nextResults);
-          callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length));
+        if (message.type === "done") {
+          progress.done = true;
         }
 
-        if (resultCount >= options.maxResults) {
-          finish(true);
+        const currentProgress = createProgress(workerProgress, resultCount, pages.length);
+        callbacks.onProgress(currentProgress);
+
+        if (workerProgress.every((item) => item.done)) {
+          finish(false);
+        }
+      };
+
+      worker.onerror = (event) => {
+        if (cancelled) {
+          return;
         }
 
-        return;
-      }
+        cancelled = true;
+        workers.forEach((item) => item.terminate());
+        callbacks.onError(event.message || "Similar glyph search worker failed.");
+      };
 
-      progress.checkedPageCount = message.checkedPageCount;
-      progress.checkedCodePointCount = message.checkedCodePointCount;
-
-      if (message.type === "done") {
-        progress.done = true;
-      }
-
-      const currentProgress = createProgress(workerProgress, resultCount, pages.length);
-      callbacks.onProgress(currentProgress);
-
-      if (workerProgress.every((item) => item.done)) {
-        finish(false);
-      }
-    };
-
-    worker.onerror = (event) => {
-      if (cancelled) {
-        return;
-      }
-
-      cancelled = true;
-      workers.forEach((item) => item.terminate());
-      callbacks.onError(event.message || "Similar glyph search worker failed.");
-    };
-
-    worker.postMessage({
-      id: index,
-      pages: chunk,
-      pageSize: options.pageData.pageSize,
-      minCodePoint: options.pageData.range.start,
-      maxCodePoint: options.pageData.range.end,
-      targetChar: options.targetChar,
-      targetCodePoint: options.targetChar.codePointAt(0) ?? -1,
-      targetWidth: options.targetWidth,
-      fontFamily: options.fontFamily,
-      canvasSize: options.canvasSize,
-      threshold: options.threshold,
-      widthMatch: options.widthMatch,
-      widthMode: options.widthMode,
-    } satisfies WorkerRequest);
-  });
+      worker.postMessage({
+        id: index,
+        pages: chunk,
+        pageSize: options.pageData.pageSize,
+        minCodePoint: options.pageData.range.start,
+        maxCodePoint: options.pageData.range.end,
+        targetChar: options.targetChar,
+        targetCodePoint: options.targetChar.codePointAt(0) ?? -1,
+        targetBitmap,
+        fontFamily: options.fontFamily,
+        canvasSize: options.canvasSize,
+        threshold: options.threshold,
+        widthMode: options.widthMode,
+      } satisfies WorkerRequest);
+    });
+  } catch (error) {
+    cancelled = true;
+    workers.forEach((worker) => worker.terminate());
+    throw error;
+  }
 
   return {
     cancel() {

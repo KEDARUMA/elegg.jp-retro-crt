@@ -57,10 +57,10 @@ type SimilarPalette = {
   id: string;
   name: string;
   query: string;
+  targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
   threshold: number;
-  widthMatch: boolean;
   maxResults: number;
   results: SimilarGlyphSearchResult[];
   isSearching: boolean;
@@ -71,6 +71,7 @@ type SimilarPalette = {
 };
 
 type Palette = NormalPalette | HistoryPalette | KeyboardInputPalette | UnicodePalette | SimilarPalette;
+type SimilarBitmapBrush = "hard" | "soft";
 
 type StampSet = {
   id: string;
@@ -111,7 +112,10 @@ type StampPaletteHistorySnapshot = {
   activeStampSetId: string;
   activeStampId: string;
 };
-type UndoHistoryTarget = "document" | "charPalette" | "stampPalette";
+type SimilarBitmapHistorySnapshot = {
+  targetBitmap: number[];
+};
+type UndoHistoryTarget = "document" | "charPalette" | "stampPalette" | "similarBitmap";
 type TextDraft = {
   x: number;
   y: number;
@@ -192,6 +196,18 @@ const UNICODE_GLYPH_SCAN_ALL_PAGE_COUNT = Math.ceil((UNICODE_GLYPH_SCAN_MAX_CODE
 const SIMILAR_GLYPH_DEFAULT_FONT_FAMILY = "\"MS Gothic\", monospace";
 const SIMILAR_GLYPH_DEFAULT_THRESHOLD = 28;
 const SIMILAR_GLYPH_DEFAULT_MAX_RESULTS = 256;
+const SIMILAR_BITMAP_HARD_BRUSH = [{ dx: 0, dy: 0, alpha: 255 }];
+const SIMILAR_BITMAP_SOFT_BRUSH = [
+  { dx: -1, dy: -1, alpha: 96 },
+  { dx: 0, dy: -1, alpha: 160 },
+  { dx: 1, dy: -1, alpha: 96 },
+  { dx: -1, dy: 0, alpha: 160 },
+  { dx: 0, dy: 0, alpha: 255 },
+  { dx: 1, dy: 0, alpha: 160 },
+  { dx: -1, dy: 1, alpha: 96 },
+  { dx: 0, dy: 1, alpha: 160 },
+  { dx: 1, dy: 1, alpha: 96 },
+];
 const stampMdsModules = import.meta.glob("../data/library/stamps/*.mds", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 const stampLibraryItems = stampLibraryIndex as StampLibraryIndexItem[];
 const stampSources = stampLibraryItems.flatMap((item) => {
@@ -255,10 +271,10 @@ export function useAaMaker() {
       id: "similar",
       name: "Similar",
       query: "",
+      targetBitmap: createBlankSimilarBitmap(16),
       fontFamily: SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
       canvasSize: 16,
       threshold: SIMILAR_GLYPH_DEFAULT_THRESHOLD,
-      widthMatch: false,
       maxResults: SIMILAR_GLYPH_DEFAULT_MAX_RESULTS,
       results: [],
       isSearching: false,
@@ -291,6 +307,8 @@ export function useAaMaker() {
   const charPaletteRedoStack = ref<CharPaletteHistorySnapshot[]>([]);
   const stampPaletteUndoStack = ref<StampPaletteHistorySnapshot[]>([]);
   const stampPaletteRedoStack = ref<StampPaletteHistorySnapshot[]>([]);
+  const similarBitmapUndoStack = ref<SimilarBitmapHistorySnapshot[]>([]);
+  const similarBitmapRedoStack = ref<SimilarBitmapHistorySnapshot[]>([]);
   const lastUndoHistoryTarget = ref<UndoHistoryTarget>("document");
   const textDraft = ref<TextDraft | null>(null);
   const isUnicodeGlyphPageScanRunning = ref(false);
@@ -1452,16 +1470,29 @@ export function useAaMaker() {
       event.preventDefault();
 
       if (event.shiftKey) {
-        redoChange();
+        if (activePalette.value.kind === "similar") {
+          redoSimilarOrDocumentChange();
+        } else {
+          redoChange();
+        }
       } else {
-        undoChange();
+        if (activePalette.value.kind === "similar") {
+          undoSimilarOrDocumentChange();
+        } else {
+          undoChange();
+        }
       }
       return;
     }
 
     if ((event.ctrlKey || event.metaKey) && key === "y") {
       event.preventDefault();
-      redoChange();
+
+      if (activePalette.value.kind === "similar") {
+        redoSimilarOrDocumentChange();
+      } else {
+        redoChange();
+      }
       return;
     }
 
@@ -1540,7 +1571,9 @@ export function useAaMaker() {
     const palette = getSimilarPalette();
 
     if (palette) {
+      clearSimilarBitmapHistory();
       palette.query = query;
+      updateSimilarBitmapFromQuery(palette);
     }
   }
 
@@ -1549,6 +1582,11 @@ export function useAaMaker() {
 
     if (palette) {
       palette.fontFamily = fontFamily;
+
+      if (getFirstGrapheme(palette.query)) {
+        clearSimilarBitmapHistory();
+        updateSimilarBitmapFromQuery(palette);
+      }
     }
   }
 
@@ -1556,7 +1594,9 @@ export function useAaMaker() {
     const palette = getSimilarPalette();
 
     if (palette) {
+      clearSimilarBitmapHistory();
       palette.canvasSize = canvasSize === 32 ? 32 : 16;
+      updateSimilarBitmapFromQuery(palette);
     }
   }
 
@@ -1568,12 +1608,14 @@ export function useAaMaker() {
     }
   }
 
-  function updateSimilarWidthMatch(widthMatch: boolean) {
+  function beginSimilarBitmapStroke() {
     const palette = getSimilarPalette();
 
-    if (palette) {
-      palette.widthMatch = widthMatch;
+    if (palette?.isSearching) {
+      return;
     }
+
+    recordSimilarBitmapHistory();
   }
 
   function updateSimilarMaxResults(maxResults: number) {
@@ -1584,6 +1626,70 @@ export function useAaMaker() {
     }
   }
 
+  function updateSimilarBitmapPixel(index: number, alpha: number) {
+    const palette = getSimilarPalette();
+
+    if (!palette || palette.isSearching || index < 0 || index >= palette.targetBitmap.length) {
+      return;
+    }
+
+    const nextBitmap = [...palette.targetBitmap];
+    nextBitmap[index] = clamp(alpha, 0, 255);
+    palette.targetBitmap = nextBitmap;
+  }
+
+  function paintSimilarBitmapPixel(index: number, brush: SimilarBitmapBrush, erase: boolean) {
+    const palette = getSimilarPalette();
+
+    if (!palette || palette.isSearching || index < 0 || index >= palette.targetBitmap.length) {
+      return;
+    }
+
+    const size = palette.canvasSize;
+    const x = index % size;
+    const y = Math.floor(index / size);
+    const weights = brush === "soft" ? SIMILAR_BITMAP_SOFT_BRUSH : SIMILAR_BITMAP_HARD_BRUSH;
+    const nextBitmap = [...palette.targetBitmap];
+
+    weights.forEach((weight) => {
+      const targetX = x + weight.dx;
+      const targetY = y + weight.dy;
+
+      if (targetX < 0 || targetY < 0 || targetX >= size || targetY >= size) {
+        return;
+      }
+
+      const targetIndex = targetY * size + targetX;
+      const current = nextBitmap[targetIndex] ?? 0;
+      nextBitmap[targetIndex] = erase ? clamp(current - weight.alpha, 0, 255) : Math.max(current, weight.alpha);
+    });
+
+    palette.targetBitmap = nextBitmap;
+  }
+
+  function clearSimilarBitmap() {
+    const palette = getSimilarPalette();
+
+    if (!palette || palette.isSearching) {
+      return;
+    }
+
+    const nextBitmap = createBlankSimilarBitmap(palette.canvasSize);
+
+    if (areSimilarBitmapsEqual(getSimilarBitmapSnapshot(palette), nextBitmap)) {
+      return;
+    }
+
+    recordSimilarBitmapHistory();
+    palette.targetBitmap = nextBitmap;
+  }
+
+  function updateSimilarBitmapFromQuery(palette: SimilarPalette) {
+    const char = getFirstGrapheme(palette.query);
+
+    palette.targetBitmap = char ? createSimilarGlyphBitmap(char, palette.canvasSize, palette.fontFamily.trim() || SIMILAR_GLYPH_DEFAULT_FONT_FAMILY) : createBlankSimilarBitmap(palette.canvasSize);
+  }
+
   function startSimilarSearch() {
     const palette = getSimilarPalette();
 
@@ -1591,60 +1697,75 @@ export function useAaMaker() {
       return;
     }
 
-    const targetChar = getFirstGrapheme(palette.query) || toolState.selectedChar;
+    const queryChar = getFirstGrapheme(palette.query);
+    const targetBitmap = getSimilarBitmapSnapshot(palette);
+    const hasTargetBitmap = hasSimilarBitmapInk(targetBitmap);
+    const targetChar = queryChar || (!hasTargetBitmap ? toolState.selectedChar : null);
 
     palette.results = [];
     palette.checkedPageCount = 0;
     palette.totalPageCount = 0;
     palette.checkedCodePointCount = 0;
 
-    if (!targetChar) {
+    if (!targetChar && !hasTargetBitmap) {
       palette.status = "Input required";
       return;
     }
 
-    palette.query = targetChar;
+    if (queryChar) {
+      palette.query = queryChar;
+    } else if (targetChar) {
+      palette.query = targetChar;
+    }
+
     palette.isSearching = true;
     palette.status = "Searching";
 
-    similarGlyphSearchHandle = startSimilarGlyphSearch(
-      {
-        pageData: unicodeGlyphPages as UnicodeGlyphPageData,
-        targetChar,
-        targetWidth: getCharWidth(targetChar, widthMode.value),
-        fontFamily: palette.fontFamily.trim() || SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
-        canvasSize: palette.canvasSize,
-        threshold: palette.threshold,
-        widthMatch: palette.widthMatch,
-        maxResults: palette.maxResults,
-        workerCount: getUnicodeGlyphScanWorkerCount(),
-        widthMode: widthMode.value,
-      },
-      {
-        onResults(results) {
-          palette.results.push(...results);
+    try {
+      const handle = startSimilarGlyphSearch(
+        {
+          pageData: unicodeGlyphPages as UnicodeGlyphPageData,
+          targetChar: targetChar ?? "",
+          targetBitmap: hasTargetBitmap ? targetBitmap : undefined,
+          fontFamily: palette.fontFamily.trim() || SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
+          canvasSize: palette.canvasSize,
+          threshold: palette.threshold,
+          maxResults: palette.maxResults,
+          workerCount: getUnicodeGlyphScanWorkerCount(),
+          widthMode: widthMode.value,
         },
-        onProgress(progress) {
-          palette.checkedPageCount = progress.checkedPageCount;
-          palette.totalPageCount = progress.totalPageCount;
-          palette.checkedCodePointCount = progress.checkedCodePointCount;
-          palette.status = "Searching";
+        {
+          onResults(results) {
+            palette.results.push(...results);
+          },
+          onProgress(progress) {
+            palette.checkedPageCount = progress.checkedPageCount;
+            palette.totalPageCount = progress.totalPageCount;
+            palette.checkedCodePointCount = progress.checkedCodePointCount;
+            palette.status = "Searching";
+          },
+          onDone(progress, cancelled) {
+            similarGlyphSearchHandle = null;
+            palette.isSearching = false;
+            palette.checkedPageCount = progress.checkedPageCount;
+            palette.totalPageCount = progress.totalPageCount;
+            palette.checkedCodePointCount = progress.checkedCodePointCount;
+            palette.status = cancelled && palette.results.length < palette.maxResults ? "Stopped" : "Done";
+          },
+          onError(message) {
+            similarGlyphSearchHandle = null;
+            palette.isSearching = false;
+            palette.status = message;
+          },
         },
-        onDone(progress, cancelled) {
-          similarGlyphSearchHandle = null;
-          palette.isSearching = false;
-          palette.checkedPageCount = progress.checkedPageCount;
-          palette.totalPageCount = progress.totalPageCount;
-          palette.checkedCodePointCount = progress.checkedCodePointCount;
-          palette.status = cancelled && palette.results.length < palette.maxResults ? "Stopped" : "Done";
-        },
-        onError(message) {
-          similarGlyphSearchHandle = null;
-          palette.isSearching = false;
-          palette.status = message;
-        },
-      },
-    );
+      );
+
+      similarGlyphSearchHandle = handle;
+    } catch (error) {
+      similarGlyphSearchHandle = null;
+      palette.isSearching = false;
+      palette.status = error instanceof Error ? error.message : String(error);
+    }
   }
 
   function cancelSimilarSearch() {
@@ -2050,6 +2171,23 @@ export function useAaMaker() {
     stampPaletteRedoStack.value = [];
   }
 
+  function recordSimilarBitmapHistory() {
+    const palette = getSimilarPalette();
+
+    if (!palette) {
+      return;
+    }
+
+    similarBitmapUndoStack.value.push(createSimilarBitmapHistorySnapshot(palette));
+    lastUndoHistoryTarget.value = "similarBitmap";
+
+    if (similarBitmapUndoStack.value.length > UNDO_HISTORY_LIMIT) {
+      similarBitmapUndoStack.value.shift();
+    }
+
+    similarBitmapRedoStack.value = [];
+  }
+
   function clearCharPaletteHistory() {
     charPaletteUndoStack.value = [];
     charPaletteRedoStack.value = [];
@@ -2064,6 +2202,15 @@ export function useAaMaker() {
     stampPaletteRedoStack.value = [];
 
     if (lastUndoHistoryTarget.value === "stampPalette") {
+      lastUndoHistoryTarget.value = "document";
+    }
+  }
+
+  function clearSimilarBitmapHistory() {
+    similarBitmapUndoStack.value = [];
+    similarBitmapRedoStack.value = [];
+
+    if (lastUndoHistoryTarget.value === "similarBitmap") {
       lastUndoHistoryTarget.value = "document";
     }
   }
@@ -2179,6 +2326,50 @@ export function useAaMaker() {
     return true;
   }
 
+  function undoSimilarBitmapChange() {
+    const palette = getSimilarPalette();
+    const snapshot = similarBitmapUndoStack.value.pop();
+
+    if (!palette || !snapshot) {
+      return false;
+    }
+
+    similarBitmapRedoStack.value.push(createSimilarBitmapHistorySnapshot(palette));
+    restoreSimilarBitmapHistorySnapshot(palette, snapshot);
+    lastUndoHistoryTarget.value = "similarBitmap";
+    return true;
+  }
+
+  function redoSimilarBitmapChange() {
+    const palette = getSimilarPalette();
+    const snapshot = similarBitmapRedoStack.value.pop();
+
+    if (!palette || !snapshot) {
+      return false;
+    }
+
+    similarBitmapUndoStack.value.push(createSimilarBitmapHistorySnapshot(palette));
+    restoreSimilarBitmapHistorySnapshot(palette, snapshot);
+    lastUndoHistoryTarget.value = "similarBitmap";
+    return true;
+  }
+
+  function undoSimilarOrDocumentChange() {
+    if (lastUndoHistoryTarget.value === "similarBitmap" && undoSimilarBitmapChange()) {
+      return;
+    }
+
+    undoChange();
+  }
+
+  function redoSimilarOrDocumentChange() {
+    if (lastUndoHistoryTarget.value === "similarBitmap" && redoSimilarBitmapChange()) {
+      return;
+    }
+
+    redoChange();
+  }
+
   function undoChange() {
     if (lastUndoHistoryTarget.value === "charPalette" && undoCharPaletteChange()) {
       return;
@@ -2238,6 +2429,22 @@ export function useAaMaker() {
 
     const stampSet = activeStampSet.value;
     activeStampId.value = stampSet?.stamps.some((stamp) => stamp.id === snapshot.activeStampId) ? snapshot.activeStampId : "";
+  }
+
+  function createSimilarBitmapHistorySnapshot(palette: SimilarPalette): SimilarBitmapHistorySnapshot {
+    return {
+      targetBitmap: getSimilarBitmapSnapshot(palette),
+    };
+  }
+
+  function restoreSimilarBitmapHistorySnapshot(palette: SimilarPalette, snapshot: SimilarBitmapHistorySnapshot) {
+    const expectedLength = palette.canvasSize * palette.canvasSize;
+
+    if (snapshot.targetBitmap.length !== expectedLength) {
+      return;
+    }
+
+    palette.targetBitmap = snapshot.targetBitmap.map((alpha) => clamp(alpha, 0, 255));
   }
 
   async function copySelectionToClipboard() {
@@ -3352,12 +3559,15 @@ export function useAaMaker() {
     toggleLayerVisible,
     cancelSimilarSearch,
     startSimilarSearch,
+    beginSimilarBitmapStroke,
+    clearSimilarBitmap,
+    paintSimilarBitmapPixel,
+    updateSimilarBitmapPixel,
     updateSimilarCanvasSize,
     updateSimilarFontFamily,
     updateSimilarMaxResults,
     updateSimilarQuery,
     updateSimilarThreshold,
-    updateSimilarWidthMatch,
     updateUnicodeQuery,
     updateUnicodeScrollOffset,
     toolCursorOverlay,
@@ -3366,6 +3576,134 @@ export function useAaMaker() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function createBlankSimilarBitmap(canvasSize: 16 | 32) {
+  return Array.from({ length: canvasSize * canvasSize }, () => 0);
+}
+
+function getSimilarBitmapSnapshot(palette: SimilarPalette) {
+  const expectedLength = palette.canvasSize * palette.canvasSize;
+
+  if (!Array.isArray(palette.targetBitmap) || palette.targetBitmap.length !== expectedLength) {
+    return createBlankSimilarBitmap(palette.canvasSize);
+  }
+
+  return palette.targetBitmap.map((alpha) => {
+    const value = Number(alpha);
+    return Number.isFinite(value) ? clamp(value, 0, 255) : 0;
+  });
+}
+
+function hasSimilarBitmapInk(bitmap: number[] | undefined) {
+  return Array.isArray(bitmap) && bitmap.some((alpha) => alpha > 12);
+}
+
+function areSimilarBitmapsEqual(left: number[], right: number[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function createSimilarGlyphBitmap(char: string, canvasSize: 16 | 32, fontFamily: string) {
+  if (typeof document === "undefined") {
+    return createBlankSimilarBitmap(canvasSize);
+  }
+
+  const sourceSize = canvasSize * 3;
+  const sourceCanvas = document.createElement("canvas");
+  const normalizedCanvas = document.createElement("canvas");
+
+  sourceCanvas.width = sourceSize;
+  sourceCanvas.height = sourceSize;
+  normalizedCanvas.width = canvasSize;
+  normalizedCanvas.height = canvasSize;
+
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const normalizedContext = normalizedCanvas.getContext("2d", { willReadFrequently: true });
+
+  if (!sourceContext || !normalizedContext) {
+    return createBlankSimilarBitmap(canvasSize);
+  }
+
+  const fontSize = Math.floor(sourceSize * 0.58);
+  sourceContext.textAlign = "center";
+  sourceContext.textBaseline = "middle";
+  sourceContext.fillStyle = "#000000";
+  sourceContext.font = `${fontSize}px ${fontFamily}`;
+  sourceContext.clearRect(0, 0, sourceSize, sourceSize);
+  sourceContext.fillText(char, sourceSize / 2, sourceSize / 2);
+
+  const sourceImage = sourceContext.getImageData(0, 0, sourceSize, sourceSize);
+  const bounds = getSimilarBitmapInkBounds(sourceImage.data, sourceSize);
+
+  if (!bounds) {
+    return createBlankSimilarBitmap(canvasSize);
+  }
+
+  normalizedContext.clearRect(0, 0, canvasSize, canvasSize);
+  normalizedContext.imageSmoothingEnabled = true;
+  normalizedContext.imageSmoothingQuality = "high";
+  const targetRect = getAspectFitRect(bounds.width, bounds.height, canvasSize);
+  normalizedContext.drawImage(
+    sourceCanvas,
+    bounds.x,
+    bounds.y,
+    bounds.width,
+    bounds.height,
+    targetRect.x,
+    targetRect.y,
+    targetRect.width,
+    targetRect.height,
+  );
+
+  const normalizedData = normalizedContext.getImageData(0, 0, canvasSize, canvasSize).data;
+  return Array.from({ length: canvasSize * canvasSize }, (_, index) => normalizedData[index * 4 + 3]);
+}
+
+function getSimilarBitmapInkBounds(data: Uint8ClampedArray, size: number) {
+  let minX = size;
+  let minY = size;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const alpha = data[(y * size + x) * 4 + 3];
+
+      if (alpha <= 12) {
+        continue;
+      }
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) {
+    return null;
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
+}
+
+function getAspectFitRect(sourceWidth: number, sourceHeight: number, canvasSize: number) {
+  const maxSize = Math.max(1, canvasSize - 2);
+  const scale = Math.min(maxSize / Math.max(1, sourceWidth), maxSize / Math.max(1, sourceHeight));
+  const width = Math.max(1, sourceWidth * scale);
+  const height = Math.max(1, sourceHeight * scale);
+
+  return {
+    x: (canvasSize - width) / 2,
+    y: (canvasSize - height) / 2,
+    width,
+    height,
+  };
 }
 
 function cloneDocument(documentValue: AaDocument): AaDocument {
