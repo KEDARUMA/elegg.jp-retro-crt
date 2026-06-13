@@ -323,11 +323,11 @@ Image link:
 AA Maker のスタンプデータは、MDS 内に `<stamp-set>` と `<stamp>` を置いて定義できます。
 
 ```mds
-<stamp-set id="giko-neko" name="Giko Neko">
-<stamp id="giko-neko-001" name="Giko Neko 001">
-　　＿＿＿_∧∧
-～'　＿＿__(,,ﾟДﾟ)
-　 ＵU 　 　Ｕ U
+<stamp-set id="speech-bubble" name="Speech Bubble">
+<stamp id="speech-bubble-001" name="Speech Bubble 001">
+　 ／￣￣￣￣￣￣￣
+＜
+　 ＼＿＿＿＿＿＿＿
 </stamp>
 </stamp-set>
 ```

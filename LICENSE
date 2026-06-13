@@ -1,0 +1,94 @@
+Elegg Retro CRT / AA Maker Project License 1.0
+
+Copyright (c) 2026 elegg.jp and contributors
+
+This document is bilingual. If the Japanese and English texts conflict,
+the Japanese text prevails.
+
+## 日本語
+
+### 1. 定義
+
+- 「本プロジェクト」とは、このリポジトリに含まれるコード、設定、文書、UI文言、画像、アイコン、サンプル、生成物、およびそれらの派生物をいいます。
+- 「商用利用」とは、販売、サブスクリプション、広告収益、受託納品、有償サポート、ライセンス料の請求、またはその他の営利目的での利用をいいます。
+- 「商標」とは、`AA-Maker`、`Elegg Retro CRT`、`elegg.jp`、ロゴ、アプリアイコン、サービス名、ドメイン名、その他これらに類似する識別表示をいいます。通常の機能を表す UI アイコンは、それ自体が本プロジェクトの識別表示として使われる場合を除き、商標には含みません。
+
+### 2. 許諾
+
+著作権者は、非商用目的に限り、本プロジェクトを使用、閲覧、複製、改変、再配布する非独占的、世界的、無償の許諾を与えます。
+
+公開する派生物は、次の条件を満たす必要があります。
+
+- 本 LICENSE と NOTICE を保持すること
+- 元の著作権表示を削除しないこと
+- 派生物自身の著作権表示、変更内容、第三者素材の表記を追加する場合でも、元の LICENSE、NOTICE、著作権表示を誤認させないこと
+- 本プロジェクトと明確に区別できること
+- 本プロジェクトの公式版、後継版、又は関係者公認版であると誤認させないこと
+
+Issue、Pull Request、レビュー、検証、又は貢献準備のために、本プロジェクトを fork、clone、branch として保持又は公開することは、商用利用を伴わず、かつ本プロジェクトの代替配布物として公開しない限り、未改変複製の公開配布には含みません。
+
+### 3. 禁止事項
+
+次の行為は禁止します。
+
+- 商用利用
+- 本プロジェクトの未改変複製、又は実質的に同一とみなせる公開配布
+- 商標の無断使用
+- 本プロジェクトの名前、ロゴ、外観、説明文を用いたなりすまし
+- 元の著作権表示、LICENSE、NOTICE の削除、又は元の条件を誤認させる改変
+
+### 4. 第三者素材
+
+本プロジェクトに含まれる第三者のコード、フォント、画像、アイコン、ライブラリ、その他の素材は、それぞれの権利者の条件に従います。
+
+### 5. 保証の否認
+
+本プロジェクトは、現状有姿で提供されます。著作権者および寄与者は、商品性、特定目的適合性、権利非侵害を含む一切の保証を行いません。
+
+### 6. 責任の制限
+
+著作権者および寄与者は、本プロジェクトの使用または使用不能に起因する損害について、いかなる責任も負いません。
+
+## English
+
+### 1. Definitions
+
+- "Project" means the code, configuration, documentation, UI text, images, icons, samples, generated files, and derivative works contained in this repository.
+- "Commercial Use" means use for sale, subscription, advertising revenue, commissioned delivery, paid support, license fees, or any other profit-seeking purpose.
+- "Trademarks" means `AA-Maker`, `Elegg Retro CRT`, `elegg.jp`, logos, app icons, service names, domain names, and any confusingly similar identifiers. Ordinary functional UI icons are not Trademarks unless they are used as identifying marks of the Project.
+
+### 2. Grant
+
+The copyright holder grants you a non-exclusive, worldwide, royalty-free license to use, view, copy, modify, and redistribute the Project for non-commercial purposes only.
+
+Any public derivative work must satisfy all of the following:
+
+- keep this LICENSE and the NOTICE file
+- keep the original copyright notices
+- avoid misleading changes to the original LICENSE, NOTICE, and copyright notices, even when adding copyright notices, change notices, or third-party notices for derivative works
+- remain clearly distinguishable from the Project
+- avoid suggesting that it is the official, successor, or endorsed version of the Project
+
+Keeping or publishing a fork, clone, or branch for issues, pull requests, review, testing, or contribution preparation is not treated as public redistribution of an unmodified copy, provided that it is non-commercial and is not presented as an alternative distribution of the Project.
+
+### 3. Restrictions
+
+The following are prohibited:
+
+- Commercial Use
+- Public redistribution of unmodified copies or copies that are substantially identical to the Project
+- Unauthorized use of the Trademarks
+- Impersonation using the Project name, logos, appearance, or description
+- Removing original copyright notices, this LICENSE, or the NOTICE file, or altering them in a way that misrepresents the original terms
+
+### 4. Third-Party Materials
+
+Third-party code, fonts, images, icons, libraries, and other materials included in the Project remain subject to their own license terms.
+
+### 5. Disclaimer of Warranty
+
+The Project is provided "as is". The copyright holder and contributors make no warranties of any kind, express or implied, including warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+### 6. Limitation of Liability
+
+The copyright holder and contributors are not liable for any damages arising from the use or inability to use the Project.
