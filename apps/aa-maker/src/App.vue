@@ -3,6 +3,7 @@ import { ref } from "vue";
 import ColorPickerModal from "./components/ColorPickerModal.vue";
 import EditorGrid from "./components/EditorGrid.vue";
 import ExportDocumentModal from "./components/ExportDocumentModal.vue";
+import ImageToAsciiArtModal from "./components/ImageToAsciiArtModal.vue";
 import SaveDocumentModal from "./components/SaveDocumentModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import SidePanel from "./components/SidePanel.vue";
@@ -17,6 +18,7 @@ type ExportDestination = "download" | "clipboard";
 
 const isSaveDocumentModalOpen = ref(false);
 const isExportDocumentModalOpen = ref(false);
+const isImageToAsciiArtModalOpen = ref(false);
 const isSettingsModalOpen = ref(false);
 const isSettingsCanvasColorPickerOpen = ref(false);
 
@@ -68,6 +70,7 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
       @export-document="isExportDocumentModalOpen = true"
       @open-settings="openSettingsModal"
       @invert-canvas-background="aaMaker.invertCanvasBackground"
+      @open-image-to-ascii-art="isImageToAsciiArtModalOpen = true"
       @scan-unicode-glyph-pages="aaMaker.scanAllUnicodeGlyphPages"
     />
     <Toolbox
@@ -203,6 +206,10 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
       v-if="isExportDocumentModalOpen"
       @export="exportDocument"
       @cancel="isExportDocumentModalOpen = false"
+    />
+    <ImageToAsciiArtModal
+      v-if="isImageToAsciiArtModalOpen"
+      @close="isImageToAsciiArtModalOpen = false"
     />
     <SettingsModal
       v-if="isSettingsModalOpen"

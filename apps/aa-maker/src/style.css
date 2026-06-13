@@ -1409,6 +1409,331 @@ button {
   color: #eeeeee;
 }
 
+.image-to-aa-backdrop {
+  z-index: 30;
+}
+
+.image-to-aa-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(1060px, calc(100vw - 32px));
+  max-height: min(92vh, 820px);
+  padding: 12px;
+  overflow: hidden;
+}
+
+.image-to-aa-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 12px;
+}
+
+.image-to-aa-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.image-to-aa-header p {
+  margin: 4px 0 0;
+  color: #a8a8a8;
+  font-size: 12px;
+}
+
+.image-to-aa-header button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #bbbbbb;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.image-to-aa-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.image-to-aa-stage-panel,
+.image-control-panel {
+  min-height: 0;
+  background: #252525;
+  box-shadow: inset 0 0 0 1px #424242;
+}
+
+.image-to-aa-stage-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  padding: 8px;
+}
+
+.image-source-loader {
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  place-items: center;
+  border: 1px dashed #696969;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    #202020;
+  background-size: 16px 16px;
+  color: #eeeeee;
+}
+
+.image-source-loader-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.image-source-loader-note {
+  color: #999999;
+  font-size: 11px;
+}
+
+.image-target-frame {
+  position: relative;
+  width: min(100%, 640px);
+  aspect-ratio: 8 / 5;
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid #717171;
+  background: #101010;
+  box-shadow:
+    0 0 0 1px #181818,
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.source-image-layer,
+.processed-image-layer,
+.ascii-overlay-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.source-image-layer {
+  background:
+    radial-gradient(circle at 28% 34%, rgba(230, 230, 230, 0.95) 0 18%, transparent 19% 100%),
+    radial-gradient(circle at 70% 58%, rgba(190, 190, 190, 0.9) 0 24%, transparent 25% 100%),
+    linear-gradient(135deg, #1b1b1b, #4b4b4b 48%, #151515);
+  opacity: 0.7;
+}
+
+.processed-image-layer {
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.1) 0 1px, transparent 1px 16px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 8px);
+  mix-blend-mode: screen;
+}
+
+.ascii-overlay-layer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 10px;
+  color: rgba(255, 255, 255, 0.86);
+  font-family: var(--aa-font-family);
+  font-size: clamp(9px, 1.35vw, 16px);
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: pre;
+  text-shadow: 0 0 3px #000000;
+  pointer-events: none;
+}
+
+.image-target-frame-label {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #dcdcdc;
+  font-size: 11px;
+}
+
+.image-layer-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.image-layer-card {
+  display: grid;
+  gap: 2px;
+  min-height: 46px;
+  padding: 7px 8px;
+  background: #1f1f1f;
+  border-left: 3px solid #8f8f8f;
+}
+
+.image-layer-card span {
+  color: #cfcfcf;
+  font-size: 12px;
+}
+
+.image-layer-card strong {
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.image-layer-card--top {
+  border-left-color: #d0d0d0;
+}
+
+.image-layer-card--merged {
+  border-left-color: #ffffff;
+}
+
+.image-match-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.image-match-progress-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #cfcfcf;
+  font-size: 11px;
+}
+
+.image-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid #777777;
+  background: #181818;
+}
+
+.image-progress-grid span {
+  min-height: 8px;
+  border: 1px solid #343434;
+  background: #242424;
+}
+
+.image-progress-grid span.is-active {
+  border-color: #eeeeee;
+  background: #555555;
+}
+
+.image-control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.image-control-group {
+  display: grid;
+  gap: 9px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #3f3f3f;
+}
+
+.image-control-group:last-child {
+  border-bottom: 0;
+}
+
+.image-control-group h3 {
+  margin: 0;
+  color: #f0f0f0;
+  font-size: 13px;
+}
+
+.image-control-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #dcdcdc;
+  font-size: 12px;
+}
+
+.image-control-field input,
+.image-control-field select {
+  width: 100%;
+  min-height: 28px;
+  border: 1px solid #555555;
+  background: #202020;
+  color: #eeeeee;
+  font: inherit;
+}
+
+.image-control-field input[type="range"] {
+  min-height: 20px;
+  accent-color: #d7d7d7;
+}
+
+.image-control-field input[type="text"],
+.image-control-field select {
+  padding: 0 7px;
+}
+
+.image-control-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.image-check-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #eeeeee;
+  font-size: 12px;
+}
+
+.image-layer-stack-note {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  background: #1f1f1f;
+  color: #c9c9c9;
+  font-size: 12px;
+}
+
+.image-layer-stack-note strong {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.image-action-button {
+  min-height: 28px;
+  border: 1px solid #555555;
+  background: #353535;
+  color: #eeeeee;
+  font: inherit;
+}
+
+.image-action-button:disabled,
+.image-to-aa-actions button:disabled {
+  color: #777777;
+  cursor: default;
+}
+
+.image-to-aa-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.image-to-aa-actions button {
+  min-width: 78px;
+  min-height: 28px;
+  border: 1px solid #555555;
+  background: #3a3a3a;
+  color: #eeeeee;
+  font: inherit;
+}
+
 .color-picker-backdrop {
   position: fixed;
   inset: 0;

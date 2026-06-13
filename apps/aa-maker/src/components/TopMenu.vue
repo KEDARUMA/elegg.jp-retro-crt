@@ -10,6 +10,7 @@ const emit = defineEmits<{
   exportDocument: [];
   openSettings: [];
   invertCanvasBackground: [];
+  openImageToAsciiArt: [];
   scanUnicodeGlyphPages: [];
 }>();
 
@@ -99,6 +100,11 @@ function requestInvertCanvasBackground() {
   isImageMenuOpen.value = false;
 }
 
+function requestImageToAsciiArt() {
+  emit("openImageToAsciiArt");
+  isImageMenuOpen.value = false;
+}
+
 function requestUnicodeGlyphPageScan() {
   emit("scanUnicodeGlyphPages");
   isDevMenuOpen.value = false;
@@ -126,6 +132,7 @@ function requestUnicodeGlyphPageScan() {
         <button type="button" @click="toggleImageMenu">Image</button>
         <div v-if="isImageMenuOpen" class="menu-dropdown">
           <button type="button" @click="requestInvertCanvasBackground">Invert BG</button>
+          <button type="button" @click="requestImageToAsciiArt">Image to AA...</button>
         </div>
       </div>
       <div v-if="isDevMode" class="menu-item">
