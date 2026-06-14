@@ -32,6 +32,7 @@
 | `image-to-aa-menu-item` | `Image to AA...` | 画像AA生成モーダルを開く `Image` メニュー項目 | 通常 / 無効 | click: `open-image-to-aa-modal` |
 | `image-to-aa-modal` | `Image to AA` | 画像読み込みから適用までを扱うモーダル本体。モーダル全体を画像ドロップ領域として扱う | 未ロード / drag-over / ロード済み / 変換中 / 適用可能 | drop, close-request |
 | `image-load-button` | `Load Image` | クリックで画像ファイル選択を開くボタン | 通常 / 読み込み中 | click |
+| `image-save-button` | `Save Image` | 現在の加工済み 640x400 画像を PNG 保存するボタン | 未ロード時は無効 | click |
 | `image-source-file-input` | なし | `image-load-button` から起動する非表示ファイル入力 | 待機 | change |
 | `image-work-area` | なし | 画像ステージと AA プレビューを並べる作業領域 | 画像ロード後に表示 | resize |
 | `image-stage` | `640 x 400` | 読み込んだ画像、半角レイヤー、全角レイヤー、グリッドを重ねて確認する領域 | 通常 / ドラッグ中 | pointer-down, pointer-move, pointer-up, wheel, cmd+wheel(macOS), ctrl+wheel(Windows) |
@@ -57,6 +58,9 @@
 | `canny-low-threshold-control` | `Low` | Canny-like の弱エッジしきい値 | `0..255` | input |
 | `canny-high-threshold-control` | `High` | Canny-like の強エッジしきい値 | `0..255` | input |
 | `full-width-matching-toggle` | `Full-width matching` | 半角パス後に全角 16x16 パスを実行するか切り替える | on / off | change |
+| `matching-method-control` | `Matching Method` | 画像タイルと候補グリフの比較方式を選択する | Pixel / Pixelmatch / Chamfer / Edge Correlation / Template Matching / Contour Shape | change |
+| `matching-method-params` | 方式別パラメータ | `matching-method-control` の選択肢ごとに比較パラメータを表示する | 選択方式に連動 | input |
+| `matching-library-toast` | なし | 外部マッチングライブラリのロード結果を toast で通知する | success / error | toast |
 | `difference-threshold-control` | `Difference Threshold` | 文字採用に使う差分しきい値を設定する | 数値入力 | input |
 | `regenerate-button` | `Regenerate` | 現在の設定で AA マッチングを再実行する | 通常 / 変換中は無効 | click: `start-image-to-aa-match` |
 | `match-progress` | `Matching...` | マッチング進捗を表示する | 非表示 / 進捗表示 / 完了 / エラー | progress |
@@ -79,7 +83,9 @@
 - 対応入力はブラウザが `HTMLImageElement` または `createImageBitmap` で読める画像ファイルとする。
 - `image-to-aa-modal` 全体へのドロップに対応する。
 - `image-load-button` のクリックでファイル選択に対応する。
+- `matching` 状態では、画像更新につながる操作をすべて禁止する。対象は `Load Image`、`Save Image`、ドラッグ＆ドロップ、`image-stage` ドラッグ、ホイール、Transform、Processing、Edge 操作とする。
 - 画像ロード後、元画像のアスペクト比を維持したまま `image-stage` 内に収まる初期スケールを設定する。
+- 画像ロード後、加工済みプレビュー画像の背景明度を判定し、`image-grid-overlay` の線色を反対色へ自動更新する。
 - `image-stage` の論理サイズは常に 640x400 px とする。
 - `image-stage` の表示比率も常に 640:400 を維持し、親レイアウトの高さに合わせて縦方向へ stretch しない。
 - `image-stage` 上のドラッグで画像位置を調整する。
@@ -103,6 +109,9 @@
 `edge-mode-control` は画像加工方式の選択であり、別の変換モードではない。
 `Sobel` / `Canny-like` / `Laplacian` のいずれを選んだ場合も、後続の AA マッチング手順は通常と同じにする。
 `scale-control`、`rotation-control`、`position-x-control`、`position-y-control`、`monochrome-toggle`、`contrast-control`、`invert-toggle`、画像再ロード、Edgeパラメータ変更のいずれかが発生した場合、適用済みEdge画像は破棄する。
+`invert-toggle` の変更時は、加工済みプレビュー画像の背景明度を再判定し、`image-grid-overlay` の線色を反対色へ自動更新する。
+`scale-control`、`rotation-control`、`position-x-control`、`position-y-control` の変更で既存のAA結果を破棄する必要がある場合は、破棄確認を先に表示する。
+画像更新前の確認と、文字配置破棄、Edge破棄は個別ハンドラへ分散させず、画像更新要求の一元入口で集中処理する。
 
 ## Edge Mode パラメータ
 
@@ -142,6 +151,21 @@
 - 0.0 に近いほど加工済み画像タイルと候補グリフが近い。
 - `difference-threshold-control` より大きい候補は採用しない。
 - 初期値は既存の似た文字検索を想定し、`18` とする。
+
+`matching-method-control` で `differenceScore` の算出方式を切り替えられる。
+
+| 方式 | ライブラリ | 概要 |
+| --- | --- | --- |
+| `Pixel` | built-in | 現行方式。ピクセル alpha / luminance の絶対差を使う。 |
+| `Pixelmatch` | `pixelmatch` | Pixelmatch の知覚差分を使う。 |
+| `Chamfer` | `OpenCV.js` | OpenCV.js を遅延ロードし、`distanceTransform` で線の近さを評価する。 |
+| `Edge Correlation` | `OpenCV.js` | OpenCV.js を遅延ロードし、Sobel / Laplacian 系 API 可用性を確認してエッジ方向の近さを評価する。 |
+| `Template Matching` | `OpenCV.js` | OpenCV.js を遅延ロードし、template matching API 可用性を確認して相関を評価する。 |
+| `Contour Shape` | `OpenCV.js` | OpenCV.js を遅延ロードし、contour / shape API 可用性を確認して形状特徴を評価する。 |
+
+外部ライブラリは初期表示時には読み込まない。
+`matching-method-control` で外部方式を選択した時点で preload し、実際のマッチングWorker内でも未ロードなら再度 `ensure` する。
+preload は非ブロッキングで行い、`regenerate-button` は preload 中でも押せるようにする。
 
 ## 半角 8x16 パス
 
@@ -207,6 +231,7 @@ off の場合は、`half-match-layer` だけを 80x25 セルとして扱う。
 - `full-width-matching-toggle` が on の場合は、`half-match-layer` の上に `full-match-layer` を重ねて表示する。
 - `full-width-matching-toggle` が off の場合は、`half-match-layer` だけを表示する。
 - `grid-visibility-toggle` が on の場合は、`image-grid-overlay` を最前面に表示し、画像、半角、全角すべての位置指標にする。
+- `image-grid-overlay` の線色は、現在表示中の加工済みプレビュー画像の背景明度に応じて白系または黒系へ自動切替する。
 - AA 文字は編集グリッドと同じフォント、同じ幅判定、同じ 80x25 セル配置で表示する。
 - 生成結果の文字色は `FGDC` 相当、背景色はなしとして表示する。
 - `edge-mode-control` や `invert-toggle` などの画像加工を変更した場合、既存の AA 生成結果は stale として扱い、`Regenerate` を促す。
@@ -228,6 +253,7 @@ off の場合は、`half-match-layer` だけを 80x25 セルとして扱う。
 
 `cancel-button` またはモーダル close 要求では、モーダル内の画像、加工設定、マッチング結果を破棄する。
 
+- モーダル外をタップしても閉じない。
 - 画像ロード前は確認なしで閉じる。
 - 画像ロード後、設定変更後、または AA 生成後は `cancel-confirm-dialog` を表示する。
 - 破棄を確定した場合、編集グリッドには何も反映せずに閉じる。
@@ -252,6 +278,7 @@ off の場合は、`half-match-layer` だけを 80x25 セルとして扱う。
 | `canny-low-threshold-control` | `32` |
 | `canny-high-threshold-control` | `96` |
 | `full-width-matching-toggle` | on |
+| `matching-method-control` | `Pixel` |
 | `difference-threshold-control` | `18` |
 
 ## 未確定事項

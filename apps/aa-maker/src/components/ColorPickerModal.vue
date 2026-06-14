@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
+import { clamp } from "../utils/clamp";
 
 const props = defineProps<{
   mode: "fgc" | "bgc";
@@ -75,10 +76,6 @@ function applySwatch(color: string) {
 function getLuma(hex: string) {
   const color = hexToRgb(hex);
   return (color.r * 299 + color.g * 587 + color.b * 114) / 1000;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function hexToRgb(hex: string) {

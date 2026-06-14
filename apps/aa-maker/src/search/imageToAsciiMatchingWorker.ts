@@ -1,9 +1,14 @@
 import { getTerminalCharWidth, type WidthMode } from "../model/widthMode";
+import { clamp } from "../utils/clamp";
 import type {
   ImageToAsciiApplyCell,
   ImageToAsciiCellUpdate,
   ImageToAsciiGlyphPolarity,
   ImageToAsciiGlyphCacheSummary,
+  ImageToAsciiMatchingLibraryName,
+  ImageToAsciiMatchingLibraryStatus,
+  ImageToAsciiMatchingMethod,
+  ImageToAsciiMatchingParams,
   ImageToAsciiMatchProgress,
   ImageToAsciiMatchRangeResult,
   ImageToAsciiMatchResult,
@@ -12,26 +17,36 @@ import type {
 } from "./imageToAsciiMatching";
 import type { UnicodeGlyphPageData } from "./similarGlyphSearch";
 
-type WorkerRequest = BaseWorkerRequest &
-  (
-    | {
-        kind: "match";
-        imageAlpha: Uint8ClampedArray;
-        threshold: number;
-        includeFullWidth: boolean;
-      }
-    | {
-        kind: "match-range";
-        imageAlpha: Uint8ClampedArray;
-        threshold: number;
-        includeFullWidth: boolean;
-        rowStart: number;
-        rowEnd: number;
-      }
-    | {
-        kind: "build-cache" | "prepare-cache";
-      }
-  );
+type WorkerRequest =
+  | (BaseWorkerRequest &
+      (
+        | {
+            kind: "match";
+            imageAlpha: Uint8ClampedArray;
+            threshold: number;
+            includeFullWidth: boolean;
+            matchingMethod: ImageToAsciiMatchingMethod;
+            matchingParams: ImageToAsciiMatchingParams;
+          }
+        | {
+            kind: "match-range";
+            imageAlpha: Uint8ClampedArray;
+            threshold: number;
+            includeFullWidth: boolean;
+            matchingMethod: ImageToAsciiMatchingMethod;
+            matchingParams: ImageToAsciiMatchingParams;
+            rowStart: number;
+            rowEnd: number;
+          }
+        | {
+            kind: "build-cache" | "prepare-cache";
+          }
+      ))
+  | {
+      id: number;
+      kind: "preload-library";
+      matchingMethod: ImageToAsciiMatchingMethod;
+    };
 
 type BaseWorkerRequest = {
   id: number;
@@ -72,6 +87,11 @@ type WorkerMessage =
       type: "cache-built";
       id: number;
       summary: ImageToAsciiGlyphCacheSummary;
+    }
+  | {
+      type: "library-ready";
+      id: number;
+      status: ImageToAsciiMatchingLibraryStatus;
     }
   | {
       type: "error";
@@ -135,6 +155,8 @@ type TilePattern = {
   alpha: Uint8ClampedArray;
   features: Uint8ClampedArray;
   density: number;
+  width: number;
+  height: number;
 };
 
 type RenderedGlyphImage = {
@@ -144,6 +166,51 @@ type RenderedGlyphImage = {
 
 type MatchCell = ImageToAsciiApplyCell & {
   score: number;
+};
+
+type PixelmatchFunction = (
+  img1: Uint8Array | Uint8ClampedArray,
+  img2: Uint8Array | Uint8ClampedArray,
+  output: Uint8Array | Uint8ClampedArray | undefined,
+  width: number,
+  height: number,
+  options?: {
+    threshold?: number;
+    includeAA?: boolean;
+    alpha?: number;
+    diffMask?: boolean;
+  },
+) => number;
+
+type OpenCvModule = Record<string, unknown> & {
+  onRuntimeInitialized?: () => void;
+};
+
+type GradientFeatures = {
+  magnitudes: Float32Array;
+  angles: Float32Array;
+  totalMagnitude: number;
+};
+
+type ShapeFeatures = {
+  area: number;
+  centroidX: number;
+  centroidY: number;
+  spreadX: number;
+  spreadY: number;
+  diagonal: number;
+};
+
+type ScoreContext = {
+  method: ImageToAsciiMatchingMethod;
+  params: ImageToAsciiMatchingParams;
+  glyphPolarity: ImageToAsciiGlyphPolarity;
+  pixelmatch?: PixelmatchFunction;
+  opencv?: OpenCvModule;
+  rgbaCache: WeakMap<Uint8ClampedArray, Uint8ClampedArray>;
+  distanceCache: WeakMap<Uint8ClampedArray, Float32Array>;
+  gradientCache: WeakMap<Uint8ClampedArray, GradientFeatures>;
+  shapeCache: WeakMap<Uint8ClampedArray, ShapeFeatures>;
 };
 
 const workerScope = self as unknown as WorkerScope;
@@ -185,6 +252,12 @@ workerScope.onmessage = (event) => {
 
 async function handleRequest(request: WorkerRequest) {
   try {
+    if (request.kind === "preload-library") {
+      const status = await preloadMatchingLibrary(request.id, request.matchingMethod);
+      workerScope.postMessage({ type: "library-ready", id: request.id, status });
+      return;
+    }
+
     if (request.kind === "build-cache" || request.kind === "prepare-cache") {
       const indexes = await getCandidateIndexes(request, request.kind === "build-cache");
       workerScope.postMessage({
@@ -199,13 +272,21 @@ async function handleRequest(request: WorkerRequest) {
     }
 
     if (request.kind === "match-range") {
-      const result = await matchImageRangeToAscii(request, request.rowStart, request.rowEnd);
-      workerScope.postMessage({ type: "range-result", id: request.id, result });
+      try {
+        const result = await matchImageRangeToAscii(request, request.rowStart, request.rowEnd);
+        workerScope.postMessage({ type: "range-result", id: request.id, result });
+      } finally {
+        postProcessingCell(request.id, null);
+      }
       return;
     }
 
-    const result = await matchImageToAscii(request);
-    workerScope.postMessage({ type: "result", id: request.id, result });
+    try {
+      const result = await matchImageToAscii(request);
+      workerScope.postMessage({ type: "result", id: request.id, result });
+    } finally {
+      postProcessingCell(request.id, null);
+    }
   } catch (error) {
     workerScope.postMessage({
       type: "error",
@@ -241,6 +322,7 @@ async function matchImageRangeToAscii(
   const safeRowStart = Math.max(0, Math.min(GRID_ROWS, Math.floor(rowStart)));
   const safeRowEnd = Math.max(safeRowStart, Math.min(GRID_ROWS, Math.ceil(rowEnd)));
   const rowCount = safeRowEnd - safeRowStart;
+  const scoreContext = await createScoreContext(request);
   const { halfIndex, fullIndex } = await getCandidateIndexes(request, false);
   const checkedCodePointCount = countPresentCodePoints(request.pageData);
   const totalCodePointCount = checkedCodePointCount;
@@ -256,10 +338,10 @@ async function matchImageRangeToAscii(
     for (let x = 0; x < GRID_COLUMNS; x += 1) {
       const index = localRow * GRID_COLUMNS + x;
       const progressCellCount = localRow * GRID_COLUMNS + x + 1;
-      postProcessingCell(request.id, { phase: "match-half", x, y, width: 1 });
+      postProcessingCellStart(request.id, { phase: "match-half", x, y, width: 1 });
 
       const tile = createTilePattern(request.imageAlpha, x * HALF_CELL_WIDTH, y * CELL_HEIGHT, HALF_CELL_WIDTH, CELL_HEIGHT, FEATURE_COLUMNS_HALF);
-      const match = findBestCandidate(tile, halfIndex, request.threshold);
+      const match = findBestCandidate(tile, halfIndex, request.threshold, scoreContext);
 
       halfCells[index] = match.score <= request.threshold ? match : { char: " ", width: 1, score: match.score };
       halfScores[index] = match.score;
@@ -305,10 +387,10 @@ async function matchImageRangeToAscii(
       for (let x = 0; x < GRID_COLUMNS - 1; x += 1) {
         const linearIndex = localRow * GRID_COLUMNS + x;
         const progressCellCount = localRow * (GRID_COLUMNS - 1) + x + 1;
-        postProcessingCell(request.id, { phase: "match-full", x, y, width: 2 });
+        postProcessingCellStart(request.id, { phase: "match-full", x, y, width: 2 });
 
         const tile = createTilePattern(request.imageAlpha, x * HALF_CELL_WIDTH, y * CELL_HEIGHT, FULL_CELL_WIDTH, CELL_HEIGHT, FEATURE_COLUMNS_FULL);
-        const match = findBestCandidate(tile, fullIndex, request.threshold);
+        const match = findBestCandidate(tile, fullIndex, request.threshold, scoreContext);
         const halfAverage = (halfScores[linearIndex] + halfScores[linearIndex + 1]) / 2;
 
         if (match.char === " " || match.score > request.threshold || match.score >= halfAverage) {
@@ -355,8 +437,6 @@ async function matchImageRangeToAscii(
       totalCellCount: rowCount * (GRID_COLUMNS - 1),
     });
   }
-
-  postProcessingCell(request.id, null);
 
   const rows: ImageToAsciiMatchRowResult[] = [];
 
@@ -670,6 +750,8 @@ function createTilePattern(source: Uint8ClampedArray, originX: number, originY: 
     alpha,
     features: createFeatures(alpha, width, height, featureColumns, FEATURE_ROWS),
     density: getAverageAlpha(alpha),
+    width,
+    height,
   };
 }
 
@@ -701,8 +783,8 @@ function createFeatures(alpha: Uint8ClampedArray, width: number, height: number,
   return features;
 }
 
-function findBestCandidate(tile: TilePattern, index: CandidateIndex, threshold: number): MatchCell {
-  const blankScore = getDifferenceScore(tile.alpha, index.blank.alpha);
+function findBestCandidate(tile: TilePattern, index: CandidateIndex, threshold: number, scoreContext: ScoreContext): MatchCell {
+  const blankScore = getCandidateScore(tile, index.blank, scoreContext);
 
   if (blankScore <= threshold && Math.abs(tile.density - index.blank.density) < threshold * 2.55) {
     return {
@@ -718,7 +800,7 @@ function findBestCandidate(tile: TilePattern, index: CandidateIndex, threshold: 
   let bestScore = blankScore;
 
   shortlist.forEach((candidate) => {
-    const score = getDifferenceScore(tile.alpha, candidate.alpha, bestScore);
+    const score = getCandidateScore(tile, candidate, scoreContext, bestScore);
 
     if (score < bestScore || (score === bestScore && candidate.codePoint < best.codePoint)) {
       best = candidate;
@@ -731,6 +813,307 @@ function findBestCandidate(tile: TilePattern, index: CandidateIndex, threshold: 
     width: best.width,
     score: Math.round(bestScore * 100) / 100,
   };
+}
+
+let pixelmatchPromise: Promise<PixelmatchFunction> | null = null;
+let openCvPromise: Promise<OpenCvModule> | null = null;
+
+async function preloadMatchingLibrary(id: number, method: ImageToAsciiMatchingMethod): Promise<ImageToAsciiMatchingLibraryStatus> {
+  const library = getMatchingLibraryName(method);
+
+  if (library === "none") {
+    return {
+      method,
+      library,
+      message: "Built-in Pixel matching is ready.",
+    };
+  }
+
+  postProgress(id, {
+    phase: "load-library",
+    checkedCodePointCount: 0,
+    totalCodePointCount: 1,
+    matchedCellCount: 0,
+    totalCellCount: GRID_COLUMNS * GRID_ROWS,
+  });
+
+  if (library === "pixelmatch") {
+    await ensurePixelmatch();
+  } else {
+    assertOpenCvMethodSupport(method, await ensureOpenCv());
+  }
+
+  postProgress(id, {
+    phase: "load-library",
+    checkedCodePointCount: 1,
+    totalCodePointCount: 1,
+    matchedCellCount: 0,
+    totalCellCount: GRID_COLUMNS * GRID_ROWS,
+  });
+
+  return {
+    method,
+    library,
+    message: `${getMatchingLibraryLabel(library)} is ready.`,
+  };
+}
+
+async function createScoreContext(request: Extract<WorkerRequest, { kind: "match" }> | Extract<WorkerRequest, { kind: "match-range" }>): Promise<ScoreContext> {
+  const library = getMatchingLibraryName(request.matchingMethod);
+  let pixelmatch: PixelmatchFunction | undefined;
+  let opencv: OpenCvModule | undefined;
+
+  if (library === "pixelmatch") {
+    await preloadMatchingLibrary(request.id, request.matchingMethod);
+    pixelmatch = await ensurePixelmatch();
+  }
+
+  return {
+    method: request.matchingMethod,
+    params: request.matchingParams,
+    glyphPolarity: request.glyphPolarity,
+    pixelmatch,
+    opencv,
+    rgbaCache: new WeakMap(),
+    distanceCache: new WeakMap(),
+    gradientCache: new WeakMap(),
+    shapeCache: new WeakMap(),
+  };
+}
+
+function getMatchingLibraryName(method: ImageToAsciiMatchingMethod): ImageToAsciiMatchingLibraryName {
+  if (method === "pixelmatch") {
+    return "pixelmatch";
+  }
+
+  if (method === "chamfer" || method === "edge-correlation" || method === "template" || method === "contour-shape") {
+    return "opencv";
+  }
+
+  return "none";
+}
+
+function getMatchingLibraryLabel(library: ImageToAsciiMatchingLibraryName) {
+  if (library === "pixelmatch") {
+    return "Pixelmatch";
+  }
+
+  if (library === "opencv") {
+    return "OpenCV.js";
+  }
+
+  return "Built-in matcher";
+}
+
+function assertOpenCvMethodSupport(method: ImageToAsciiMatchingMethod, opencv: OpenCvModule) {
+  const requiredApis =
+    method === "chamfer"
+      ? ["Mat", "matFromArray", "distanceTransform"]
+      : method === "edge-correlation"
+        ? ["Mat", "Sobel", "Laplacian"]
+        : method === "template"
+          ? ["Mat", "matchTemplate"]
+          : method === "contour-shape"
+            ? ["Mat", "findContours", "matchShapes"]
+            : ["Mat"];
+  const missingApi = requiredApis.find((apiName) => typeof opencv[apiName] !== "function");
+
+  if (missingApi) {
+    throw new Error(`${getMatchingLibraryLabel("opencv")} does not expose required API: ${missingApi}.`);
+  }
+}
+
+async function ensurePixelmatch() {
+  if (!pixelmatchPromise) {
+    pixelmatchPromise = import("pixelmatch").then((module) => module.default);
+  }
+
+  return pixelmatchPromise;
+}
+
+async function ensureOpenCv() {
+  if (!openCvPromise) {
+    openCvPromise = import("@techstark/opencv-js").then(async (module) => {
+      const loadedModule = module as unknown as { default?: unknown; cv?: unknown };
+      const cvModule = (loadedModule.default ?? loadedModule.cv ?? loadedModule) as OpenCvModule | PromiseLike<OpenCvModule>;
+      // OpenCV.js の default export は Promise ではなく thenable で返ることがある。
+      const resolved = await Promise.resolve(cvModule);
+
+      if (typeof resolved.Mat === "function") {
+        return resolved;
+      }
+
+      await waitForOpenCvRuntime(resolved);
+
+      if (typeof resolved.Mat !== "function") {
+        throw new Error("OpenCV.js loaded, but required runtime APIs are not available.");
+      }
+
+      return resolved;
+    });
+  }
+
+  return openCvPromise;
+}
+
+function waitForOpenCvRuntime(cvModule: OpenCvModule) {
+  return new Promise<void>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error("OpenCV.js initialization timed out.")), 30000);
+    const previousCallback = cvModule.onRuntimeInitialized;
+
+    cvModule.onRuntimeInitialized = () => {
+      clearTimeout(timeoutId);
+      previousCallback?.();
+      resolve();
+    };
+  });
+}
+
+function getCandidateScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext, stopScore = Number.POSITIVE_INFINITY) {
+  if (context.method === "pixelmatch") {
+    return getPixelmatchScore(tile, candidate, context);
+  }
+
+  if (context.method === "chamfer") {
+    return getChamferScore(tile, candidate, context);
+  }
+
+  if (context.method === "edge-correlation") {
+    return getEdgeCorrelationScore(tile, candidate, context);
+  }
+
+  if (context.method === "template") {
+    return getTemplateScore(tile, candidate, context);
+  }
+
+  if (context.method === "contour-shape") {
+    return getContourShapeScore(tile, candidate, context);
+  }
+
+  return getPixelScore(tile, candidate, context, stopScore);
+}
+
+function getPixelScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext, stopScore = Number.POSITIVE_INFINITY) {
+  const params = context.params.pixel;
+  const pixelScore = getDifferenceScore(tile.alpha, candidate.alpha, stopScore);
+  const densityScore = (Math.abs(tile.density - candidate.density) / 255) * 100;
+  const featureScore = getFeatureDifferenceScore(tile.features, candidate.features, Number.POSITIVE_INFINITY);
+  const inkMismatchScore = getInkMismatchScore(tile.alpha, candidate.alpha, context.glyphPolarity);
+  const weightedScore = getWeightedScore([
+    [pixelScore, params.pixelWeight],
+    [densityScore, params.densityWeight],
+    [featureScore, params.featureWeight],
+    [inkMismatchScore, params.inkMismatchPenalty],
+  ]);
+
+  return clampScore(weightedScore + (candidate.char === " " ? params.blankBias : 0));
+}
+
+function getPixelmatchScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext) {
+  if (!context.pixelmatch) {
+    throw new Error("Pixelmatch is not loaded.");
+  }
+
+  const params = context.params.pixelmatch;
+  const diffPixels = context.pixelmatch(
+    getRgbaFromAlpha(tile.alpha, context),
+    getRgbaFromAlpha(candidate.alpha, context),
+    undefined,
+    tile.width,
+    tile.height,
+    {
+      threshold: clamp(params.threshold, 0, 1),
+      includeAA: params.includeAA,
+      alpha: clamp(params.alpha, 0, 1),
+      diffMask: params.diffMask,
+    },
+  );
+  const mismatchScore = (diffPixels / Math.max(1, tile.width * tile.height)) * 100;
+  const pixelScore = getDifferenceScore(tile.alpha, candidate.alpha);
+
+  return clampScore(getWeightedScore([[mismatchScore, params.perceptualWeight], [pixelScore, 1 - params.perceptualWeight]]));
+}
+
+function getChamferScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext) {
+  const params = context.params.chamfer;
+  const width = tile.width;
+  const height = tile.height;
+  const maxDistance = Math.max(1, params.maxDistance);
+  const tileDistance = getDistanceMap(tile.alpha, width, height, context, params.edgeThreshold, params.metric, params.dilationRadius);
+  const candidateDistance = getDistanceMap(candidate.alpha, width, height, context, params.edgeThreshold, params.metric, params.dilationRadius);
+  const candidateToTile = getForegroundDistanceScore(candidate.alpha, tileDistance, context.glyphPolarity, params.edgeThreshold, maxDistance);
+  const tileToCandidate = getForegroundDistanceScore(tile.alpha, candidateDistance, context.glyphPolarity, params.edgeThreshold, maxDistance);
+  const backgroundScore = getInkMismatchScore(tile.alpha, candidate.alpha, context.glyphPolarity);
+
+  return clampScore(
+    getWeightedScore([
+      [candidateToTile, params.foregroundWeight],
+      [tileToCandidate, params.bidirectionalWeight],
+      [backgroundScore, params.backgroundPenalty],
+    ]),
+  );
+}
+
+function getEdgeCorrelationScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext) {
+  const params = context.params.edgeCorrelation;
+  const tileGradient = getGradientFeatures(tile.alpha, tile.width, tile.height, context, params.edgeMode);
+  const candidateGradient = getGradientFeatures(candidate.alpha, tile.width, tile.height, context, params.edgeMode);
+  const correlationScore = 100 - getGradientCorrelation(tileGradient, candidateGradient) * 100;
+  const differenceScore = getDifferenceScore(tile.alpha, candidate.alpha);
+  const magnitudeScore = getGradientMagnitudeDifference(tileGradient, candidateGradient);
+  const thresholdPenalty = getInkMismatchScore(thresholdAlpha(tile.alpha, context.glyphPolarity, params.threshold), thresholdAlpha(candidate.alpha, context.glyphPolarity, params.threshold), "white-on-black");
+
+  return clampScore(
+    getWeightedScore([
+      [correlationScore, params.correlationWeight],
+      [differenceScore, params.differenceWeight],
+      [magnitudeScore, params.gradientWeight],
+      [thresholdPenalty, params.thresholdPenaltyWeight],
+    ]),
+  );
+}
+
+function getTemplateScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext) {
+  const params = context.params.template;
+  const correlation = getNormalizedCorrelation(tile.alpha, candidate.alpha, params.mode);
+  const correlationScore = params.mode === "sqdiff-normed" ? correlation * 100 : (1 - correlation) * 100;
+  const differenceScore = getDifferenceScore(tile.alpha, candidate.alpha);
+  const densityScore = (Math.abs(tile.density - candidate.density) / 255) * 100;
+
+  return clampScore(
+    getWeightedScore([
+      [correlationScore, params.correlationWeight],
+      [differenceScore, params.differenceWeight],
+      [densityScore, params.densityWeight],
+    ]),
+  );
+}
+
+function getContourShapeScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext) {
+  const params = context.params.contourShape;
+  const tileShape = getShapeFeatures(tile.alpha, tile.width, tile.height, context, params.contourThreshold);
+  const candidateShape = getShapeFeatures(candidate.alpha, tile.width, tile.height, context, params.contourThreshold);
+
+  if (tileShape.area === 0 || candidateShape.area === 0) {
+    return tileShape.area === candidateShape.area ? 0 : clampScore(params.emptyPenalty);
+  }
+
+  const areaScore = (Math.abs(tileShape.area - candidateShape.area) / Math.max(tileShape.area, candidateShape.area, 1)) * 100;
+  const centroidScore =
+    (Math.hypot(tileShape.centroidX - candidateShape.centroidX, tileShape.centroidY - candidateShape.centroidY) / Math.max(1, tileShape.diagonal)) * 100;
+  const shapeScore =
+    ((Math.abs(tileShape.spreadX - candidateShape.spreadX) + Math.abs(tileShape.spreadY - candidateShape.spreadY)) /
+      Math.max(1, tileShape.spreadX + tileShape.spreadY + candidateShape.spreadX + candidateShape.spreadY)) *
+    200;
+  const methodBias = params.method === "i2" ? 1.15 : params.method === "i3" ? 0.9 : 1;
+
+  return clampScore(
+    getWeightedScore([
+      [shapeScore * methodBias, params.shapeWeight],
+      [areaScore, params.areaWeight],
+      [centroidScore, params.centroidWeight],
+    ]),
+  );
 }
 
 function getCandidatePool(index: CandidateIndex, density: number) {
@@ -803,6 +1186,443 @@ function getWorstShortlistItem(shortlist: { score: number }[]) {
   });
 
   return { worstScore, worstIndex };
+}
+
+function assertOpenCvReady(context: ScoreContext, label: string, requiredApis: string[]) {
+  if (!context.opencv) {
+    throw new Error(`${label} requires OpenCV.js.`);
+  }
+
+  const missingApi = requiredApis.find((apiName) => typeof context.opencv?.[apiName] !== "function");
+
+  if (missingApi) {
+    throw new Error(`${label} requires OpenCV.js API: ${missingApi}.`);
+  }
+}
+
+function getWeightedScore(items: [score: number, weight: number][]) {
+  let total = 0;
+  let weightTotal = 0;
+
+  items.forEach(([score, weight]) => {
+    const safeWeight = Number.isFinite(weight) ? Math.max(0, weight) : 0;
+
+    if (safeWeight <= 0) {
+      return;
+    }
+
+    total += score * safeWeight;
+    weightTotal += safeWeight;
+  });
+
+  return weightTotal > 0 ? total / weightTotal : 100;
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 100));
+}
+
+function getRgbaFromAlpha(alpha: Uint8ClampedArray, context: ScoreContext) {
+  const cached = context.rgbaCache.get(alpha);
+
+  if (cached) {
+    return cached;
+  }
+
+  const rgba = new Uint8ClampedArray(alpha.length * 4);
+
+  for (let index = 0; index < alpha.length; index += 1) {
+    const rgbaIndex = index * 4;
+    const value = alpha[index] ?? 0;
+    rgba[rgbaIndex] = value;
+    rgba[rgbaIndex + 1] = value;
+    rgba[rgbaIndex + 2] = value;
+    rgba[rgbaIndex + 3] = 255;
+  }
+
+  context.rgbaCache.set(alpha, rgba);
+  return rgba;
+}
+
+function getInkValue(value: number, glyphPolarity: ImageToAsciiGlyphPolarity) {
+  return glyphPolarity === "white-on-black" ? value : 255 - value;
+}
+
+function isInkPixel(value: number, glyphPolarity: ImageToAsciiGlyphPolarity, threshold: number) {
+  return getInkValue(value, glyphPolarity) >= threshold;
+}
+
+function getInkMismatchScore(left: Uint8ClampedArray, right: Uint8ClampedArray, glyphPolarity: ImageToAsciiGlyphPolarity) {
+  let mismatch = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftInk = getInkValue(left[index] ?? 0, glyphPolarity);
+    const rightInk = getInkValue(right[index] ?? 0, glyphPolarity);
+    mismatch += Math.abs(leftInk - rightInk) > 96 ? 1 : 0;
+  }
+
+  return (mismatch / Math.max(1, left.length)) * 100;
+}
+
+function thresholdAlpha(alpha: Uint8ClampedArray, glyphPolarity: ImageToAsciiGlyphPolarity, threshold: number) {
+  const output = new Uint8ClampedArray(alpha.length);
+
+  for (let index = 0; index < alpha.length; index += 1) {
+    output[index] = isInkPixel(alpha[index] ?? 0, glyphPolarity, threshold) ? 255 : 0;
+  }
+
+  return output;
+}
+
+function getDistanceMap(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  context: ScoreContext,
+  edgeThreshold: number,
+  metric: ImageToAsciiMatchingParams["chamfer"]["metric"],
+  dilationRadius: number,
+) {
+  const cached = context.distanceCache.get(alpha);
+
+  if (cached) {
+    return cached;
+  }
+
+  const openCvDistanceMap = createOpenCvDistanceMap(alpha, width, height, context, edgeThreshold, metric, dilationRadius);
+
+  if (openCvDistanceMap) {
+    context.distanceCache.set(alpha, openCvDistanceMap);
+    return openCvDistanceMap;
+  }
+
+  const points = getForegroundPoints(alpha, width, height, context.glyphPolarity, edgeThreshold, dilationRadius);
+  const distances = new Float32Array(width * height);
+
+  if (points.length === 0) {
+    distances.fill(Math.max(width, height));
+    context.distanceCache.set(alpha, distances);
+    return distances;
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let best = Number.POSITIVE_INFINITY;
+
+      points.forEach((point) => {
+        const dx = Math.abs(x - point.x);
+        const dy = Math.abs(y - point.y);
+        const distance = metric === "manhattan" ? dx + dy : metric === "chebyshev" ? Math.max(dx, dy) : Math.hypot(dx, dy);
+
+        if (distance < best) {
+          best = distance;
+        }
+      });
+
+      distances[y * width + x] = best;
+    }
+  }
+
+  context.distanceCache.set(alpha, distances);
+  return distances;
+}
+
+function createOpenCvDistanceMap(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  context: ScoreContext,
+  edgeThreshold: number,
+  metric: ImageToAsciiMatchingParams["chamfer"]["metric"],
+  dilationRadius: number,
+) {
+  const cv = context.opencv as
+    | (OpenCvModule & {
+        matFromArray?: (rows: number, cols: number, type: number, array: Uint8Array | number[]) => { delete: () => void };
+        Mat?: new () => { data32F?: Float32Array; delete: () => void };
+        distanceTransform?: (src: unknown, dst: unknown, distanceType: number, maskSize: number) => void;
+        CV_8UC1?: number;
+        DIST_L1?: number;
+        DIST_L2?: number;
+        DIST_C?: number;
+        DIST_MASK_3?: number;
+      })
+    | undefined;
+
+  if (!cv?.matFromArray || !cv.Mat || !cv.distanceTransform || typeof cv.CV_8UC1 !== "number") {
+    return null;
+  }
+
+  const binary = new Uint8Array(width * height);
+  const radius = Math.max(0, Math.round(dilationRadius));
+  const points = getForegroundPoints(alpha, width, height, context.glyphPolarity, edgeThreshold, radius);
+
+  if (points.length === 0) {
+    return null;
+  }
+
+  binary.fill(255);
+  points.forEach((point) => {
+    binary[point.y * width + point.x] = 0;
+  });
+
+  const source = cv.matFromArray(height, width, cv.CV_8UC1, binary);
+  const destination = new cv.Mat();
+
+  try {
+    const distanceType = metric === "manhattan" ? (cv.DIST_L1 ?? 1) : metric === "chebyshev" ? (cv.DIST_C ?? 3) : (cv.DIST_L2 ?? 2);
+    cv.distanceTransform(source, destination, distanceType, cv.DIST_MASK_3 ?? 3);
+    return destination.data32F ? new Float32Array(destination.data32F) : null;
+  } catch {
+    return null;
+  } finally {
+    source.delete();
+    destination.delete();
+  }
+}
+
+function getForegroundPoints(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  glyphPolarity: ImageToAsciiGlyphPolarity,
+  edgeThreshold: number,
+  dilationRadius: number,
+) {
+  const points: { x: number; y: number }[] = [];
+  const seen = new Set<number>();
+  const radius = Math.max(0, Math.round(dilationRadius));
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (!isInkPixel(alpha[y * width + x] ?? 0, glyphPolarity, edgeThreshold)) {
+        continue;
+      }
+
+      for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+        for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+          const nextX = x + offsetX;
+          const nextY = y + offsetY;
+
+          if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) {
+            continue;
+          }
+
+          const key = nextY * width + nextX;
+
+          if (!seen.has(key)) {
+            seen.add(key);
+            points.push({ x: nextX, y: nextY });
+          }
+        }
+      }
+    }
+  }
+
+  return points;
+}
+
+function getForegroundDistanceScore(
+  alpha: Uint8ClampedArray,
+  distanceMap: Float32Array,
+  glyphPolarity: ImageToAsciiGlyphPolarity,
+  edgeThreshold: number,
+  maxDistance: number,
+) {
+  let total = 0;
+  let count = 0;
+
+  for (let index = 0; index < alpha.length; index += 1) {
+    if (!isInkPixel(alpha[index] ?? 0, glyphPolarity, edgeThreshold)) {
+      continue;
+    }
+
+    total += Math.min(maxDistance, distanceMap[index] ?? maxDistance);
+    count += 1;
+  }
+
+  if (count === 0) {
+    return 100;
+  }
+
+  return (total / count / maxDistance) * 100;
+}
+
+function getGradientFeatures(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  context: ScoreContext,
+  edgeMode: ImageToAsciiMatchingParams["edgeCorrelation"]["edgeMode"],
+) {
+  const cached = context.gradientCache.get(alpha);
+
+  if (cached) {
+    return cached;
+  }
+
+  const magnitudes = new Float32Array(width * height);
+  const angles = new Float32Array(width * height);
+  let totalMagnitude = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const gx =
+        edgeMode === "laplacian"
+          ? sampleCellInk(alpha, width, height, x, y - 1, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x - 1, y, context.glyphPolarity) -
+            4 * sampleCellInk(alpha, width, height, x, y, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x + 1, y, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x, y + 1, context.glyphPolarity)
+          : -sampleCellInk(alpha, width, height, x - 1, y - 1, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x + 1, y - 1, context.glyphPolarity) -
+            2 * sampleCellInk(alpha, width, height, x - 1, y, context.glyphPolarity) +
+            2 * sampleCellInk(alpha, width, height, x + 1, y, context.glyphPolarity) -
+            sampleCellInk(alpha, width, height, x - 1, y + 1, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x + 1, y + 1, context.glyphPolarity);
+      const gy =
+        edgeMode === "laplacian"
+          ? gx
+          : -sampleCellInk(alpha, width, height, x - 1, y - 1, context.glyphPolarity) -
+            2 * sampleCellInk(alpha, width, height, x, y - 1, context.glyphPolarity) -
+            sampleCellInk(alpha, width, height, x + 1, y - 1, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x - 1, y + 1, context.glyphPolarity) +
+            2 * sampleCellInk(alpha, width, height, x, y + 1, context.glyphPolarity) +
+            sampleCellInk(alpha, width, height, x + 1, y + 1, context.glyphPolarity);
+      const magnitude = Math.hypot(gx, gy);
+      const index = y * width + x;
+
+      magnitudes[index] = magnitude;
+      angles[index] = Math.atan2(gy, gx);
+      totalMagnitude += magnitude;
+    }
+  }
+
+  const features = { magnitudes, angles, totalMagnitude };
+  context.gradientCache.set(alpha, features);
+  return features;
+}
+
+function sampleCellInk(alpha: Uint8ClampedArray, width: number, height: number, x: number, y: number, glyphPolarity: ImageToAsciiGlyphPolarity) {
+  const clampedX = Math.max(0, Math.min(width - 1, x));
+  const clampedY = Math.max(0, Math.min(height - 1, y));
+  return getInkValue(alpha[clampedY * width + clampedX] ?? 0, glyphPolarity);
+}
+
+function getGradientCorrelation(left: GradientFeatures, right: GradientFeatures) {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+
+  for (let index = 0; index < left.magnitudes.length; index += 1) {
+    const leftValue = left.magnitudes[index] ?? 0;
+    const rightValue = right.magnitudes[index] ?? 0;
+    const angleFactor = Math.max(0, Math.cos((left.angles[index] ?? 0) - (right.angles[index] ?? 0)));
+
+    dot += leftValue * rightValue * angleFactor;
+    leftNorm += leftValue * leftValue;
+    rightNorm += rightValue * rightValue;
+  }
+
+  if (leftNorm === 0 && rightNorm === 0) {
+    return 1;
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(1, dot / Math.sqrt(leftNorm * rightNorm)));
+}
+
+function getGradientMagnitudeDifference(left: GradientFeatures, right: GradientFeatures) {
+  const total = Math.max(left.totalMagnitude, right.totalMagnitude, 1);
+  return (Math.abs(left.totalMagnitude - right.totalMagnitude) / total) * 100;
+}
+
+function getNormalizedCorrelation(left: Uint8ClampedArray, right: Uint8ClampedArray, mode: ImageToAsciiMatchingParams["template"]["mode"]) {
+  if (mode === "sqdiff-normed") {
+    return getDifferenceScore(left, right) / 100;
+  }
+
+  let leftTotal = 0;
+  let rightTotal = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    leftTotal += left[index] ?? 0;
+    rightTotal += right[index] ?? 0;
+  }
+
+  const leftMean = mode === "ccoeff-normed" ? leftTotal / Math.max(1, left.length) : 0;
+  const rightMean = mode === "ccoeff-normed" ? rightTotal / Math.max(1, right.length) : 0;
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = (left[index] ?? 0) - leftMean;
+    const rightValue = (right[index] ?? 0) - rightMean;
+
+    dot += leftValue * rightValue;
+    leftNorm += leftValue * leftValue;
+    rightNorm += rightValue * rightValue;
+  }
+
+  if (leftNorm === 0 && rightNorm === 0) {
+    return 1;
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(1, dot / Math.sqrt(leftNorm * rightNorm)));
+}
+
+function getShapeFeatures(alpha: Uint8ClampedArray, width: number, height: number, context: ScoreContext, threshold: number) {
+  const cached = context.shapeCache.get(alpha);
+
+  if (cached) {
+    return cached;
+  }
+
+  let area = 0;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXX = 0;
+  let sumYY = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const weight = isInkPixel(alpha[y * width + x] ?? 0, context.glyphPolarity, threshold) ? 1 : 0;
+
+      if (weight === 0) {
+        continue;
+      }
+
+      area += weight;
+      sumX += x * weight;
+      sumY += y * weight;
+      sumXX += x * x * weight;
+      sumYY += y * y * weight;
+    }
+  }
+
+  const centroidX = area > 0 ? sumX / area : width / 2;
+  const centroidY = area > 0 ? sumY / area : height / 2;
+  const spreadX = area > 0 ? Math.sqrt(Math.max(0, sumXX / area - centroidX * centroidX)) : 0;
+  const spreadY = area > 0 ? Math.sqrt(Math.max(0, sumYY / area - centroidY * centroidY)) : 0;
+  const features = {
+    area,
+    centroidX,
+    centroidY,
+    spreadX,
+    spreadY,
+    diagonal: Math.hypot(width, height),
+  };
+
+  context.shapeCache.set(alpha, features);
+  return features;
 }
 
 function getFeatureDifferenceScore(left: Uint8ClampedArray, right: Uint8ClampedArray, stopScore: number) {
@@ -1060,6 +1880,10 @@ function postCellUpdate(id: number, update: ImageToAsciiCellUpdate) {
 
 function postProcessingCell(id: number, cell: ImageToAsciiProcessingCell | null) {
   workerScope.postMessage({ type: "processing-cell", id, cell });
+}
+
+function postProcessingCellStart(id: number, cell: ImageToAsciiProcessingCell) {
+  postProcessingCell(id, cell);
 }
 
 function postFullProgressIfNeeded(

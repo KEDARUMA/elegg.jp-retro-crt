@@ -6,14 +6,17 @@ import ExportDocumentModal from "./components/ExportDocumentModal.vue";
 import ImageToAsciiArtModal from "./components/ImageToAsciiArtModal.vue";
 import SaveDocumentModal from "./components/SaveDocumentModal.vue";
 import SettingsModal from "./components/SettingsModal.vue";
+import ToastStack from "./components/ToastStack.vue";
 import SidePanel from "./components/SidePanel.vue";
 import Toolbox from "./components/Toolbox.vue";
 import TopMenu from "./components/TopMenu.vue";
 import { AA_MAKER_VERSION } from "./appMeta";
 import { useAaMaker } from "./composables/useAaMaker";
+import { useToastQueue, type ToastKind } from "./composables/useToastQueue";
 import type { ImageToAsciiApplyGrid } from "./search/imageToAsciiMatching";
 
 const aaMaker = useAaMaker();
+const { toasts, pushToast } = useToastQueue();
 type ExportFormat = "plain" | "ansi" | "mds" | "html";
 type ExportDestination = "download" | "clipboard";
 
@@ -22,6 +25,16 @@ const isExportDocumentModalOpen = ref(false);
 const isImageToAsciiArtModalOpen = ref(false);
 const isSettingsModalOpen = ref(false);
 const isSettingsCanvasColorPickerOpen = ref(false);
+
+function openImageToAsciiArtModal() {
+  aaMaker.setImageToAsciiArtModalDirty(false);
+  isImageToAsciiArtModalOpen.value = true;
+}
+
+function closeImageToAsciiArtModal() {
+  aaMaker.setImageToAsciiArtModalDirty(false);
+  isImageToAsciiArtModalOpen.value = false;
+}
 
 function openSaveDocumentModal() {
   isSaveDocumentModalOpen.value = true;
@@ -59,8 +72,13 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
   isSettingsCanvasColorPickerOpen.value = false;
 }
 
+function handleImageToAsciiToast(payload: { kind: Exclude<ToastKind, "info">; message: string }) {
+  pushToast(payload.message, payload.kind);
+}
+
 function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
   aaMaker.applyImageToAsciiGrid(cells);
+  aaMaker.setImageToAsciiArtModalDirty(false);
   isImageToAsciiArtModalOpen.value = false;
 }
 </script>
@@ -76,7 +94,7 @@ function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
       @export-document="isExportDocumentModalOpen = true"
       @open-settings="openSettingsModal"
       @invert-canvas-background="aaMaker.invertCanvasBackground"
-      @open-image-to-ascii-art="isImageToAsciiArtModalOpen = true"
+      @open-image-to-ascii-art="openImageToAsciiArtModal"
       @scan-unicode-glyph-pages="aaMaker.scanAllUnicodeGlyphPages"
     />
     <Toolbox
@@ -216,8 +234,10 @@ function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
     <ImageToAsciiArtModal
       v-if="isImageToAsciiArtModalOpen"
       :width-mode="aaMaker.widthMode.value"
+      @dirty-change="aaMaker.setImageToAsciiArtModalDirty"
+      @toast="handleImageToAsciiToast"
       @apply="applyImageToAsciiArt"
-      @close="isImageToAsciiArtModalOpen = false"
+      @close="closeImageToAsciiArtModal"
     />
     <SettingsModal
       v-if="isSettingsModalOpen"
@@ -247,5 +267,6 @@ function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
       @apply="applySettingsCanvasColor"
       @cancel="isSettingsCanvasColorPickerOpen = false"
     />
+    <ToastStack :toasts="toasts" />
   </main>
 </template>

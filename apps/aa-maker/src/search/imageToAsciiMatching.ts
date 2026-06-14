@@ -2,6 +2,110 @@ import type { WidthMode } from "../model/widthMode";
 import type { UnicodeGlyphPageData } from "./similarGlyphSearch";
 
 export type ImageToAsciiGlyphPolarity = "white-on-black" | "black-on-white";
+export type ImageToAsciiMatchingMethod = "pixel" | "pixelmatch" | "chamfer" | "edge-correlation" | "template" | "contour-shape";
+export type ImageToAsciiMatchingLibraryName = "none" | "pixelmatch" | "opencv";
+
+export type ImageToAsciiMatchingParams = {
+  pixel: {
+    pixelWeight: number;
+    densityWeight: number;
+    featureWeight: number;
+    blankBias: number;
+    inkMismatchPenalty: number;
+  };
+  pixelmatch: {
+    threshold: number;
+    includeAA: boolean;
+    alpha: number;
+    diffMask: boolean;
+    perceptualWeight: number;
+  };
+  chamfer: {
+    metric: "manhattan" | "euclidean" | "chebyshev";
+    maxDistance: number;
+    foregroundWeight: number;
+    backgroundPenalty: number;
+    bidirectionalWeight: number;
+    edgeThreshold: number;
+    dilationRadius: number;
+  };
+  edgeCorrelation: {
+    edgeMode: "sobel" | "laplacian";
+    threshold: number;
+    correlationWeight: number;
+    differenceWeight: number;
+    gradientWeight: number;
+    thresholdPenaltyWeight: number;
+  };
+  template: {
+    mode: "ccoeff-normed" | "ccorr-normed" | "sqdiff-normed";
+    correlationWeight: number;
+    differenceWeight: number;
+    densityWeight: number;
+  };
+  contourShape: {
+    method: "i1" | "i2" | "i3";
+    contourThreshold: number;
+    shapeWeight: number;
+    areaWeight: number;
+    centroidWeight: number;
+    emptyPenalty: number;
+  };
+};
+
+export const DEFAULT_IMAGE_TO_ASCII_MATCHING_PARAMS: ImageToAsciiMatchingParams = {
+  pixel: {
+    pixelWeight: 1,
+    densityWeight: 0,
+    featureWeight: 0,
+    blankBias: 0,
+    inkMismatchPenalty: 0,
+  },
+  pixelmatch: {
+    threshold: 0.1,
+    includeAA: true,
+    alpha: 0.1,
+    diffMask: false,
+    perceptualWeight: 1,
+  },
+  chamfer: {
+    metric: "euclidean",
+    maxDistance: 8,
+    foregroundWeight: 1,
+    backgroundPenalty: 0.6,
+    bidirectionalWeight: 0.5,
+    edgeThreshold: 96,
+    dilationRadius: 0,
+  },
+  edgeCorrelation: {
+    edgeMode: "sobel",
+    threshold: 24,
+    correlationWeight: 0.65,
+    differenceWeight: 0.25,
+    gradientWeight: 0.1,
+    thresholdPenaltyWeight: 0,
+  },
+  template: {
+    mode: "ccoeff-normed",
+    correlationWeight: 0.75,
+    differenceWeight: 0.2,
+    densityWeight: 0.05,
+  },
+  contourShape: {
+    method: "i1",
+    contourThreshold: 96,
+    shapeWeight: 0.65,
+    areaWeight: 0.2,
+    centroidWeight: 0.15,
+    emptyPenalty: 100,
+  },
+};
+
+export type ImageToAsciiMatchingLibraryStatus = {
+  method: ImageToAsciiMatchingMethod;
+  library: ImageToAsciiMatchingLibraryName;
+  message: string;
+};
 
 export type ImageToAsciiApplyCell = {
   char: string;
@@ -52,7 +156,7 @@ export type ImageToAsciiMatchRangeResult = {
 };
 
 export type ImageToAsciiMatchProgress = {
-  phase: "load-cache" | "index-half" | "index-full" | "save-cache" | "match-half" | "match-full";
+  phase: "load-library" | "load-cache" | "index-half" | "index-full" | "save-cache" | "match-half" | "match-full";
   checkedCodePointCount: number;
   totalCodePointCount: number;
   matchedCellCount: number;
@@ -71,6 +175,8 @@ export type ImageToAsciiMatchOptions = ImageToAsciiGlyphCacheOptions & {
   imageAlpha: Uint8ClampedArray;
   threshold: number;
   includeFullWidth: boolean;
+  matchingMethod: ImageToAsciiMatchingMethod;
+  matchingParams: ImageToAsciiMatchingParams;
   workerCount?: number;
 };
 
@@ -97,7 +203,12 @@ type WorkerRequest =
   | (ImageToAsciiGlyphCacheOptions & {
       id: number;
       kind: "build-cache" | "prepare-cache";
-    });
+    })
+  | {
+      id: number;
+      kind: "preload-library";
+      matchingMethod: ImageToAsciiMatchingMethod;
+    };
 
 type WorkerMessage =
   | {
@@ -131,6 +242,11 @@ type WorkerMessage =
       summary: ImageToAsciiGlyphCacheSummary;
     }
   | {
+      type: "library-ready";
+      id: number;
+      status: ImageToAsciiMatchingLibraryStatus;
+    }
+  | {
       type: "error";
       id: number;
       message: string;
@@ -139,7 +255,7 @@ type WorkerMessage =
 type ImageToAsciiMatchCallbacks = {
   onProgress: (progress: ImageToAsciiMatchProgress) => void;
   onCell?: (update: ImageToAsciiCellUpdate) => void;
-  onProcessingCell?: (cell: ImageToAsciiProcessingCell | null) => void;
+  onProcessingCell?: (workerIndex: number | null, cell: ImageToAsciiProcessingCell | null) => void;
   onRangeResult?: (result: ImageToAsciiMatchRangeResult) => void;
   onResult: (result: ImageToAsciiMatchResult) => void;
   onError: (message: string) => void;
@@ -150,6 +266,17 @@ type ImageToAsciiGlyphCacheBuildCallbacks = {
   onDone: (summary: ImageToAsciiGlyphCacheSummary) => void;
   onError: (message: string) => void;
 };
+
+type ImageToAsciiMatchingLibraryPreloadCallbacks = {
+  onReady: (status: ImageToAsciiMatchingLibraryStatus) => void;
+  onError: (message: string) => void;
+};
+
+type ImageToAsciiWorkerCallbacks = Partial<ImageToAsciiMatchCallbacks> &
+  Partial<ImageToAsciiGlyphCacheBuildCallbacks> &
+  Partial<ImageToAsciiMatchingLibraryPreloadCallbacks> & {
+    onError: (message: string) => void;
+  };
 
 let nextRequestId = 1;
 const GRID_COLUMNS = 80;
@@ -170,7 +297,7 @@ export function startImageToAsciiMatching(options: ImageToAsciiMatchOptions, cal
     imageAlpha,
   };
 
-  return startImageToAsciiWorker(requestOptions, callbacks, [imageAlpha.buffer as ArrayBuffer]);
+  return startImageToAsciiWorker(requestOptions, callbacks, [imageAlpha.buffer as ArrayBuffer], 0);
 }
 
 function startParallelImageToAsciiMatching(
@@ -195,7 +322,7 @@ function startParallelImageToAsciiMatching(
 
     finished = true;
     stopAll();
-    callbacks.onProcessingCell?.(null);
+    callbacks.onProcessingCell?.(null, null);
     callbacks.onError(message);
   };
 
@@ -249,6 +376,8 @@ function startParallelImageToAsciiMatching(
           excludeColorEmoji: options.excludeColorEmoji,
           threshold: options.threshold,
           includeFullWidth: options.includeFullWidth,
+          matchingMethod: options.matchingMethod,
+          matchingParams: options.matchingParams,
           widthMode: options.widthMode,
           id: nextRequestId,
           kind: "match-range",
@@ -268,9 +397,9 @@ function startParallelImageToAsciiMatching(
               callbacks.onCell?.(update);
             }
           },
-          onProcessingCell(cell) {
+          onProcessingCell(workerIndex, cell) {
             if (!finished) {
-              callbacks.onProcessingCell?.(cell);
+              callbacks.onProcessingCell?.(workerIndex, cell);
             }
           },
           onRangeResult(result) {
@@ -288,7 +417,7 @@ function startParallelImageToAsciiMatching(
             }
 
             finished = true;
-            callbacks.onProcessingCell?.(null);
+            callbacks.onProcessingCell?.(null, null);
             callbacks.onResult(mergeRangeResults(rangeResults));
           },
           onResult() {
@@ -297,6 +426,7 @@ function startParallelImageToAsciiMatching(
           onError: fail,
         },
         [imageAlpha.buffer as ArrayBuffer],
+        index,
       );
 
       workerHandles.push(handle);
@@ -329,10 +459,25 @@ export function startImageToAsciiGlyphCacheBuild(
   );
 }
 
+export function preloadImageToAsciiMatchingLibrary(
+  matchingMethod: ImageToAsciiMatchingMethod,
+  callbacks: ImageToAsciiMatchingLibraryPreloadCallbacks,
+): ImageToAsciiMatchHandle {
+  return startImageToAsciiWorker(
+    {
+      id: nextRequestId,
+      kind: "preload-library",
+      matchingMethod,
+    },
+    callbacks,
+  );
+}
+
 function startImageToAsciiWorker(
   request: WorkerRequest,
-  callbacks: ImageToAsciiMatchCallbacks | ImageToAsciiGlyphCacheBuildCallbacks,
+  callbacks: ImageToAsciiWorkerCallbacks,
   transfer?: Transferable[],
+  workerIndex = 0,
 ): ImageToAsciiMatchHandle {
   const worker = new Worker(new URL("./imageToAsciiMatchingWorker.ts", import.meta.url), { type: "module" });
   const requestId = nextRequestId;
@@ -348,7 +493,7 @@ function startImageToAsciiWorker(
     }
 
     if (message.type === "progress") {
-      callbacks.onProgress(message.progress);
+      callbacks.onProgress?.(message.progress);
       return;
     }
 
@@ -361,7 +506,7 @@ function startImageToAsciiWorker(
 
     if (message.type === "processing-cell") {
       if ("onProcessingCell" in callbacks) {
-        callbacks.onProcessingCell?.(message.cell);
+        callbacks.onProcessingCell?.(workerIndex, message.cell);
       }
       return;
     }
@@ -370,23 +515,24 @@ function startImageToAsciiWorker(
     worker.terminate();
 
     if (message.type === "result") {
-      if ("onResult" in callbacks) {
-        callbacks.onResult(message.result);
-      }
+      callbacks.onProcessingCell?.(workerIndex, null);
+      callbacks.onResult?.(message.result);
       return;
     }
 
     if (message.type === "range-result") {
-      if ("onRangeResult" in callbacks) {
-        callbacks.onRangeResult?.(message.result);
-      }
+      callbacks.onProcessingCell?.(workerIndex, null);
+      callbacks.onRangeResult?.(message.result);
       return;
     }
 
     if (message.type === "cache-built") {
-      if ("onDone" in callbacks) {
-        callbacks.onDone(message.summary);
-      }
+      callbacks.onDone?.(message.summary);
+      return;
+    }
+
+    if (message.type === "library-ready") {
+      callbacks.onReady?.(message.status);
       return;
     }
 
@@ -400,6 +546,7 @@ function startImageToAsciiWorker(
 
     finished = true;
     worker.terminate();
+    callbacks.onProcessingCell?.(null, null);
     callbacks.onError(event.message || "Image to AA matching worker failed.");
   };
 

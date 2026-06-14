@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { getCharWidth } from "../model/gridOperations";
 import type { WidthMode } from "../model/widthMode";
+import { clamp } from "../utils/clamp";
 
 type TextDraft = {
   x: number;
@@ -131,10 +132,6 @@ function insertTextAtCursor(text: string) {
     const cursor = selectionStart + text.length;
     editor.setSelectionRange(cursor, cursor);
   });
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function getEditorWidthCells(value: string, x: number) {

@@ -1323,6 +1323,45 @@ button {
   font-size: 16px;
 }
 
+.toast-stack {
+  position: fixed;
+  top: 34px;
+  right: 16px;
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast-item {
+  padding: 10px 12px;
+  border: 1px solid #555555;
+  border-left-width: 4px;
+  background: #303030;
+  color: #eeeeee;
+  pointer-events: auto;
+}
+
+.toast-item p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.toast-item.is-info {
+  border-left-color: #808080;
+}
+
+.toast-item.is-success {
+  border-left-color: #4fa15a;
+}
+
+.toast-item.is-error {
+  border-left-color: #d06060;
+}
+
 .settings-modal-backdrop {
   z-index: 20;
 }
@@ -1639,10 +1678,10 @@ button {
 .image-grid-overlay {
   z-index: 4;
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.34) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.34) 1px, transparent 1px),
-    linear-gradient(to right, rgba(255, 255, 255, 0.78) 2px, transparent 2px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.78) 2px, transparent 2px);
+    linear-gradient(to right, var(--image-grid-minor-color, rgba(255, 255, 255, 0.34)) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--image-grid-minor-color, rgba(255, 255, 255, 0.34)) 1px, transparent 1px),
+    linear-gradient(to right, var(--image-grid-major-color, rgba(255, 255, 255, 0.78)) 2px, transparent 2px),
+    linear-gradient(to bottom, var(--image-grid-major-color, rgba(255, 255, 255, 0.78)) 2px, transparent 2px);
   background-size:
     1.25% 4%,
     1.25% 4%,
@@ -1719,6 +1758,12 @@ button {
   gap: 12px;
   padding: 10px;
   overflow: auto;
+}
+
+.image-load-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .image-control-group {
@@ -1814,6 +1859,21 @@ button {
 
 .image-control-row--three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.image-match-param-panel {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  background: #242424;
+}
+
+.image-match-divider {
+  width: 100%;
+  height: 0;
+  margin: 2px 0 0;
+  border: 0;
+  border-top: 1px solid #3f3f3f;
 }
 
 .image-check-field {
@@ -2020,14 +2080,25 @@ button {
 }
 
 .image-to-aa-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
 .image-footer-check {
   min-height: 28px;
+}
+
+.image-footer-clear-button {
+  min-width: 112px;
+  margin-right: 137px;
+}
+
+.image-footer-center {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
 }
 
 .image-footer-buttons {

@@ -20,6 +20,7 @@ import type { WidthMode } from "../model/widthMode";
 import type { ImageToAsciiApplyGrid } from "../search/imageToAsciiMatching";
 import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
 import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
+import { clamp } from "../utils/clamp";
 
 type NormalPalette = {
   kind: "normal";
@@ -314,6 +315,7 @@ export function useAaMaker() {
   const textDraft = ref<TextDraft | null>(null);
   const isUnicodeGlyphPageScanRunning = ref(false);
   const hasUnsavedDocumentChange = ref(false);
+  const isImageToAsciiArtModalDirty = ref(false);
   const toolCursorPosition = ref<{ x: number; y: number } | null>(null);
   const toolCursorCellPreview = ref<{ char: string; fgc: Color; bgc: Color } | null>(null);
   const selectedCharAttentionKey = ref(0);
@@ -1849,7 +1851,13 @@ export function useAaMaker() {
   }
 
   function handleHighlightContext(x: number, y: number, event: MouseEvent) {
-    handleGridContextPickAndFill(x, y, event);
+    if (toolState.highlight.kind !== "rect") {
+      return;
+    }
+
+    event.preventDefault();
+    cursorPosition.value = { x, y };
+    openSelectionContextMenu(event.clientX, event.clientY);
   }
 
   function handleGridContextPickAndFill(x: number, y: number, event: MouseEvent) {
@@ -2222,12 +2230,16 @@ export function useAaMaker() {
   }
 
   function handleBeforeUnload(event: BeforeUnloadEvent) {
-    if (!hasUnsavedDocumentChange.value) {
+    if (!hasUnsavedDocumentChange.value && !isImageToAsciiArtModalDirty.value) {
       return;
     }
 
     event.preventDefault();
     event.returnValue = "";
+  }
+
+  function setImageToAsciiArtModalDirty(value: boolean) {
+    isImageToAsciiArtModalDirty.value = value;
   }
 
   function undoDocumentChange() {
@@ -3563,6 +3575,7 @@ export function useAaMaker() {
     applyPaletteList,
     applyStampSetList,
     applyImageToAsciiGrid,
+    setImageToAsciiArtModalDirty,
     closeSelectedColorPicker,
     closeTextEditor,
     openSelectionBGCColorPicker,
@@ -3597,10 +3610,6 @@ export function useAaMaker() {
     updateUnicodeScrollOffset,
     toolCursorOverlay,
   };
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function createBlankSimilarBitmap(canvasSize: 16 | 32) {

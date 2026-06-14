@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import InlineTextEditor from "./InlineTextEditor.vue";
 import type { WidthMode } from "../model/widthMode";
+import { clamp } from "../utils/clamp";
 
 type GridCell = {
   x: number;
@@ -353,9 +354,6 @@ function getCellFromEvent(event: MouseEvent) {
   };
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
 </script>
 
 <template>
