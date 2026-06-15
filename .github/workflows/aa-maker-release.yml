@@ -1,0 +1,80 @@
+name: aa-maker release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump level
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: aa-maker-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bump version
+        id: bump
+        run: |
+          VERSION="$(node scripts/bump-aa-maker-version.mjs '${{ inputs.bump }}')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build aa-maker
+        run: pnpm build:aa-maker
+
+      - name: Commit and tag release
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          TAG="aa-maker-v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps/aa-maker/package.json apps/aa-maker/src/appMeta.ts
+          git commit -m "chore(aa-maker): release v${VERSION}"
+          git tag -a "${TAG}" -m "${TAG}"
+
+      - name: Push commit and tag
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          TAG="aa-maker-v${VERSION}"
+          git push origin HEAD:master
+          git push origin "${TAG}"
+
+      - name: Deploy aa-maker to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 4ec0ed5e2c19e37b2656bf3a7a9e6f5d
+          wranglerVersion: "4"
+          packageManager: pnpm
+          command: pages deploy apps/aa-maker/dist --project-name=aa-maker --branch=master
