@@ -1,5 +1,6 @@
 import { getTerminalCharWidth, type WidthMode } from "../model/widthMode";
 import { clamp } from "../utils/clamp";
+import { getContourShapeScore as getSharedContourShapeScore } from "./contourShape";
 import type {
   ImageToAsciiApplyCell,
   ImageToAsciiCellUpdate,
@@ -192,15 +193,6 @@ type GradientFeatures = {
   totalMagnitude: number;
 };
 
-type ShapeFeatures = {
-  area: number;
-  centroidX: number;
-  centroidY: number;
-  spreadX: number;
-  spreadY: number;
-  diagonal: number;
-};
-
 type ScoreContext = {
   method: ImageToAsciiMatchingMethod;
   params: ImageToAsciiMatchingParams;
@@ -210,7 +202,6 @@ type ScoreContext = {
   rgbaCache: WeakMap<Uint8ClampedArray, Uint8ClampedArray>;
   distanceCache: WeakMap<Uint8ClampedArray, Float32Array>;
   gradientCache: WeakMap<Uint8ClampedArray, GradientFeatures>;
-  shapeCache: WeakMap<Uint8ClampedArray, ShapeFeatures>;
 };
 
 const workerScope = self as unknown as WorkerScope;
@@ -877,7 +868,6 @@ async function createScoreContext(request: Extract<WorkerRequest, { kind: "match
     rgbaCache: new WeakMap(),
     distanceCache: new WeakMap(),
     gradientCache: new WeakMap(),
-    shapeCache: new WeakMap(),
   };
 }
 
@@ -1091,28 +1081,8 @@ function getTemplateScore(tile: TilePattern, candidate: GlyphCandidate, context:
 
 function getContourShapeScore(tile: TilePattern, candidate: GlyphCandidate, context: ScoreContext) {
   const params = context.params.contourShape;
-  const tileShape = getShapeFeatures(tile.alpha, tile.width, tile.height, context, params.contourThreshold);
-  const candidateShape = getShapeFeatures(candidate.alpha, tile.width, tile.height, context, params.contourThreshold);
-
-  if (tileShape.area === 0 || candidateShape.area === 0) {
-    return tileShape.area === candidateShape.area ? 0 : clampScore(params.emptyPenalty);
-  }
-
-  const areaScore = (Math.abs(tileShape.area - candidateShape.area) / Math.max(tileShape.area, candidateShape.area, 1)) * 100;
-  const centroidScore =
-    (Math.hypot(tileShape.centroidX - candidateShape.centroidX, tileShape.centroidY - candidateShape.centroidY) / Math.max(1, tileShape.diagonal)) * 100;
-  const shapeScore =
-    ((Math.abs(tileShape.spreadX - candidateShape.spreadX) + Math.abs(tileShape.spreadY - candidateShape.spreadY)) /
-      Math.max(1, tileShape.spreadX + tileShape.spreadY + candidateShape.spreadX + candidateShape.spreadY)) *
-    200;
-  const methodBias = params.method === "i2" ? 1.15 : params.method === "i3" ? 0.9 : 1;
-
-  return clampScore(
-    getWeightedScore([
-      [shapeScore * methodBias, params.shapeWeight],
-      [areaScore, params.areaWeight],
-      [centroidScore, params.centroidWeight],
-    ]),
+  return getSharedContourShapeScore(tile.alpha, candidate.alpha, tile.width, tile.height, params, (value) =>
+    isInkPixel(value, context.glyphPolarity, params.contourThreshold),
   );
 }
 
@@ -1577,52 +1547,6 @@ function getNormalizedCorrelation(left: Uint8ClampedArray, right: Uint8ClampedAr
   }
 
   return Math.max(0, Math.min(1, dot / Math.sqrt(leftNorm * rightNorm)));
-}
-
-function getShapeFeatures(alpha: Uint8ClampedArray, width: number, height: number, context: ScoreContext, threshold: number) {
-  const cached = context.shapeCache.get(alpha);
-
-  if (cached) {
-    return cached;
-  }
-
-  let area = 0;
-  let sumX = 0;
-  let sumY = 0;
-  let sumXX = 0;
-  let sumYY = 0;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const weight = isInkPixel(alpha[y * width + x] ?? 0, context.glyphPolarity, threshold) ? 1 : 0;
-
-      if (weight === 0) {
-        continue;
-      }
-
-      area += weight;
-      sumX += x * weight;
-      sumY += y * weight;
-      sumXX += x * x * weight;
-      sumYY += y * y * weight;
-    }
-  }
-
-  const centroidX = area > 0 ? sumX / area : width / 2;
-  const centroidY = area > 0 ? sumY / area : height / 2;
-  const spreadX = area > 0 ? Math.sqrt(Math.max(0, sumXX / area - centroidX * centroidX)) : 0;
-  const spreadY = area > 0 ? Math.sqrt(Math.max(0, sumYY / area - centroidY * centroidY)) : 0;
-  const features = {
-    area,
-    centroidX,
-    centroidY,
-    spreadX,
-    spreadY,
-    diagonal: Math.hypot(width, height),
-  };
-
-  context.shapeCache.set(alpha, features);
-  return features;
 }
 
 function getFeatureDifferenceScore(left: Uint8ClampedArray, right: Uint8ClampedArray, stopScore: number) {

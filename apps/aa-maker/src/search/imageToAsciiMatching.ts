@@ -1,5 +1,6 @@
 import type { WidthMode } from "../model/widthMode";
 import type { UnicodeGlyphPageData } from "./similarGlyphSearch";
+import { DEFAULT_CONTOUR_SHAPE_PARAMS, type ContourShapeParams } from "./contourShape";
 
 export type ImageToAsciiGlyphPolarity = "white-on-black" | "black-on-white";
 export type ImageToAsciiMatchingMethod = "pixel" | "pixelmatch" | "chamfer" | "edge-correlation" | "template" | "contour-shape";
@@ -43,14 +44,7 @@ export type ImageToAsciiMatchingParams = {
     differenceWeight: number;
     densityWeight: number;
   };
-  contourShape: {
-    method: "i1" | "i2" | "i3";
-    contourThreshold: number;
-    shapeWeight: number;
-    areaWeight: number;
-    centroidWeight: number;
-    emptyPenalty: number;
-  };
+  contourShape: ContourShapeParams;
 };
 
 export const DEFAULT_IMAGE_TO_ASCII_MATCHING_PARAMS: ImageToAsciiMatchingParams = {
@@ -91,14 +85,7 @@ export const DEFAULT_IMAGE_TO_ASCII_MATCHING_PARAMS: ImageToAsciiMatchingParams 
     differenceWeight: 0.2,
     densityWeight: 0.05,
   },
-  contourShape: {
-    method: "i1",
-    contourThreshold: 96,
-    shapeWeight: 0.65,
-    areaWeight: 0.2,
-    centroidWeight: 0.15,
-    emptyPenalty: 100,
-  },
+  contourShape: { ...DEFAULT_CONTOUR_SHAPE_PARAMS },
 };
 
 export type ImageToAsciiMatchingLibraryStatus = {

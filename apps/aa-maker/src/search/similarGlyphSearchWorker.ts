@@ -1,4 +1,5 @@
 import { getTerminalCharWidth, type WidthMode } from "../model/widthMode";
+import { DEFAULT_CONTOUR_SHAPE_PARAMS, getContourShapeScore } from "./contourShape";
 
 type SimilarGlyphSearchResult = {
   char: string;
@@ -66,6 +67,7 @@ workerScope.onmessage = (event) => {
 function searchSimilarGlyphs(request: WorkerRequest) {
   const renderer = createGlyphRenderer(request.canvasSize, request.fontFamily, request.widthMode);
   const targetImage = request.targetBitmap ? createGlyphImageFromAlpha(request.targetBitmap, request.canvasSize) : renderer.render(request.targetChar);
+  const contourShapeForeground = (value: number) => value >= DEFAULT_CONTOUR_SHAPE_PARAMS.contourThreshold;
   const results: SimilarGlyphSearchResult[] = [];
   let checkedPageCount = 0;
   let checkedCodePointCount = 0;
@@ -97,7 +99,14 @@ function searchSimilarGlyphs(request: WorkerRequest) {
         continue;
       }
 
-      const score = getImageDifferenceScore(targetImage, image);
+      const score = getContourShapeScore(
+        targetImage.alpha,
+        image.alpha,
+        request.canvasSize,
+        request.canvasSize,
+        DEFAULT_CONTOUR_SHAPE_PARAMS,
+        contourShapeForeground,
+      );
 
       if (score <= request.threshold) {
         results.push({ char, codePoint, score: Math.round(score * 100) / 100, width });
@@ -289,16 +298,6 @@ function getAspectFitRect(sourceWidth: number, sourceHeight: number, canvasSize:
     width,
     height,
   };
-}
-
-function getImageDifferenceScore(target: GlyphImage, candidate: GlyphImage) {
-  let total = 0;
-
-  for (let index = 0; index < target.alpha.length; index += 1) {
-    total += Math.abs(target.alpha[index] - candidate.alpha[index]);
-  }
-
-  return (total / target.alpha.length / 255) * 100;
 }
 
 function flushResults(id: number, results: SimilarGlyphSearchResult[], checkedPageCount: number, checkedCodePointCount: number) {
