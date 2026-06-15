@@ -5,13 +5,16 @@ on:
     inputs:
       bump:
         description: Version bump level
-        required: true
         type: choice
         default: patch
         options:
           - patch
           - minor
           - major
+      deploy:
+        description: Deploy to Cloudflare Pages
+        type: boolean
+        default: false
 
 concurrency:
   group: aa-maker-release
@@ -29,15 +32,6 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-
-      - name: Verify Cloudflare token
-        run: |
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "CLOUDFLARE_API_TOKEN secret is required. Add a repository secret with Account > Cloudflare Pages > Edit permission."
-            exit 1
-          fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -79,8 +73,18 @@ jobs:
           git push origin HEAD:master
           git push origin "${TAG}"
 
+      - name: Skip Cloudflare Pages deploy
+        if: ${{ !inputs.deploy }}
+        run: echo "Cloudflare Pages deploy was skipped."
+
       - name: Deploy aa-maker to Cloudflare Pages
-        run: pnpm dlx wrangler@4.100.0 pages deploy apps/aa-maker/dist --project-name=aa-maker --branch=master
+        if: ${{ inputs.deploy }}
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "CLOUDFLARE_API_TOKEN secret is required to deploy to Cloudflare Pages."
+            exit 1
+          fi
+          pnpm dlx wrangler@4.100.0 pages deploy apps/aa-maker/dist --project-name=aa-maker --branch=master
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 4ec0ed5e2c19e37b2656bf3a7a9e6f5d
