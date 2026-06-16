@@ -311,7 +311,8 @@ export function useAaMaker() {
   const stampPaletteRedoStack = ref<StampPaletteHistorySnapshot[]>([]);
   const similarBitmapUndoStack = ref<SimilarBitmapHistorySnapshot[]>([]);
   const similarBitmapRedoStack = ref<SimilarBitmapHistorySnapshot[]>([]);
-  const lastUndoHistoryTarget = ref<UndoHistoryTarget>("document");
+  const undoHistoryOrderStack = ref<UndoHistoryTarget[]>([]);
+  const redoHistoryOrderStack = ref<UndoHistoryTarget[]>([]);
   const textDraft = ref<TextDraft | null>(null);
   const isUnicodeGlyphPageScanRunning = ref(false);
   const hasUnsavedDocumentChange = ref(false);
@@ -460,6 +461,11 @@ export function useAaMaker() {
     return selectedColorPickerMode.value === "fgc" ? toolState.selectedFGC : (toolState.selectedBGC ?? documentModel.canvasBGC);
   });
   const colorPickerAllowsNone = computed(() => selectedColorPickerMode.value === "bgc");
+  const initialPaletteCellIndex =
+    activePalette.value.kind === "normal" && toolState.selectedChar !== null ? activePalette.value.chars.indexOf(toolState.selectedChar) : -1;
+  if (initialPaletteCellIndex >= 0) {
+    selectedPaletteCellIndex.value = initialPaletteCellIndex;
+  }
   const selectionContextMenuStyle = computed(() => {
     if (!selectionContextMenu.value) {
       return null;
@@ -739,9 +745,7 @@ export function useAaMaker() {
       draftSelection.value = null;
       cursorPosition.value = null;
       closeTextEditor();
-      undoStack.value = [];
-      redoStack.value = [];
-      clearLibraryHistory();
+      clearAllHistory();
       hasUnsavedDocumentChange.value = false;
     } catch {
       window.alert("Load failed: invalid AA Maker JSON.");
@@ -870,7 +874,7 @@ export function useAaMaker() {
       fillSelectionWithChar(char, width);
     }
 
-    if (activePalette.value.kind !== "normal" || activePalette.value.id === "cp437") {
+    if (activePalette.value.kind !== "normal") {
       selectedPaletteCellIndex.value = null;
     }
 
@@ -883,9 +887,9 @@ export function useAaMaker() {
   }
 
   function selectPaletteCell(index: number) {
-    const palette = getEditableNormalPalette();
+    const palette = activePalette.value;
 
-    if (!palette || index < 0 || index >= palette.chars.length) {
+    if (palette.kind !== "normal" || index < 0 || index >= palette.chars.length) {
       return;
     }
 
@@ -2147,37 +2151,37 @@ export function useAaMaker() {
   function recordDocumentHistory() {
     undoStack.value.push(createHistorySnapshot());
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "document";
 
     if (undoStack.value.length > UNDO_HISTORY_LIMIT) {
       undoStack.value.shift();
     }
 
-    redoStack.value = [];
+    appendUndoHistoryTarget("document");
+    clearRedoHistory();
   }
 
   function recordCharPaletteHistory() {
     charPaletteUndoStack.value.push(createCharPaletteHistorySnapshot());
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "charPalette";
 
     if (charPaletteUndoStack.value.length > UNDO_HISTORY_LIMIT) {
       charPaletteUndoStack.value.shift();
     }
 
-    charPaletteRedoStack.value = [];
+    appendUndoHistoryTarget("charPalette");
+    clearRedoHistory();
   }
 
   function recordStampPaletteHistory() {
     stampPaletteUndoStack.value.push(createStampPaletteHistorySnapshot());
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "stampPalette";
 
     if (stampPaletteUndoStack.value.length > UNDO_HISTORY_LIMIT) {
       stampPaletteUndoStack.value.shift();
     }
 
-    stampPaletteRedoStack.value = [];
+    appendUndoHistoryTarget("stampPalette");
+    clearRedoHistory();
   }
 
   function recordSimilarBitmapHistory() {
@@ -2188,40 +2192,69 @@ export function useAaMaker() {
     }
 
     similarBitmapUndoStack.value.push(createSimilarBitmapHistorySnapshot(palette));
-    lastUndoHistoryTarget.value = "similarBitmap";
 
     if (similarBitmapUndoStack.value.length > UNDO_HISTORY_LIMIT) {
       similarBitmapUndoStack.value.shift();
     }
 
+    appendUndoHistoryTarget("similarBitmap");
+    clearRedoHistory();
+  }
+
+  function appendUndoHistoryTarget(target: UndoHistoryTarget) {
+    undoHistoryOrderStack.value.push(target);
+
+    if (undoHistoryOrderStack.value.length > UNDO_HISTORY_LIMIT) {
+      undoHistoryOrderStack.value.shift();
+    }
+  }
+
+  function appendRedoHistoryTarget(target: UndoHistoryTarget) {
+    redoHistoryOrderStack.value.push(target);
+
+    if (redoHistoryOrderStack.value.length > UNDO_HISTORY_LIMIT) {
+      redoHistoryOrderStack.value.shift();
+    }
+  }
+
+  function clearRedoHistory() {
+    redoStack.value = [];
+    charPaletteRedoStack.value = [];
+    stampPaletteRedoStack.value = [];
     similarBitmapRedoStack.value = [];
+    redoHistoryOrderStack.value = [];
+  }
+
+  function clearAllHistory() {
+    undoStack.value = [];
+    charPaletteUndoStack.value = [];
+    stampPaletteUndoStack.value = [];
+    similarBitmapUndoStack.value = [];
+    undoHistoryOrderStack.value = [];
+    clearRedoHistory();
+  }
+
+  function removeHistoryOrderTarget(target: UndoHistoryTarget) {
+    undoHistoryOrderStack.value = undoHistoryOrderStack.value.filter((entry) => entry !== target);
+    redoHistoryOrderStack.value = redoHistoryOrderStack.value.filter((entry) => entry !== target);
   }
 
   function clearCharPaletteHistory() {
     charPaletteUndoStack.value = [];
     charPaletteRedoStack.value = [];
-
-    if (lastUndoHistoryTarget.value === "charPalette") {
-      lastUndoHistoryTarget.value = "document";
-    }
+    removeHistoryOrderTarget("charPalette");
   }
 
   function clearStampPaletteHistory() {
     stampPaletteUndoStack.value = [];
     stampPaletteRedoStack.value = [];
-
-    if (lastUndoHistoryTarget.value === "stampPalette") {
-      lastUndoHistoryTarget.value = "document";
-    }
+    removeHistoryOrderTarget("stampPalette");
   }
 
   function clearSimilarBitmapHistory() {
     similarBitmapUndoStack.value = [];
     similarBitmapRedoStack.value = [];
-
-    if (lastUndoHistoryTarget.value === "similarBitmap") {
-      lastUndoHistoryTarget.value = "document";
-    }
+    removeHistoryOrderTarget("similarBitmap");
   }
 
   function clearLibraryHistory() {
@@ -2251,7 +2284,6 @@ export function useAaMaker() {
 
     redoStack.value.push(createHistorySnapshot());
     restoreHistorySnapshot(snapshot);
-    lastUndoHistoryTarget.value = "document";
     return true;
   }
 
@@ -2264,7 +2296,6 @@ export function useAaMaker() {
 
     undoStack.value.push(createHistorySnapshot());
     restoreHistorySnapshot(snapshot);
-    lastUndoHistoryTarget.value = "document";
     return true;
   }
 
@@ -2293,7 +2324,6 @@ export function useAaMaker() {
     charPaletteRedoStack.value.push(createCharPaletteHistorySnapshot());
     restoreCharPaletteHistorySnapshot(snapshot);
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "charPalette";
     return true;
   }
 
@@ -2307,7 +2337,6 @@ export function useAaMaker() {
     charPaletteUndoStack.value.push(createCharPaletteHistorySnapshot());
     restoreCharPaletteHistorySnapshot(snapshot);
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "charPalette";
     return true;
   }
 
@@ -2321,7 +2350,6 @@ export function useAaMaker() {
     stampPaletteRedoStack.value.push(createStampPaletteHistorySnapshot());
     restoreStampPaletteHistorySnapshot(snapshot);
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "stampPalette";
     return true;
   }
 
@@ -2335,7 +2363,6 @@ export function useAaMaker() {
     stampPaletteUndoStack.value.push(createStampPaletteHistorySnapshot());
     restoreStampPaletteHistorySnapshot(snapshot);
     hasUnsavedDocumentChange.value = true;
-    lastUndoHistoryTarget.value = "stampPalette";
     return true;
   }
 
@@ -2349,7 +2376,6 @@ export function useAaMaker() {
 
     similarBitmapRedoStack.value.push(createSimilarBitmapHistorySnapshot(palette));
     restoreSimilarBitmapHistorySnapshot(palette, snapshot);
-    lastUndoHistoryTarget.value = "similarBitmap";
     return true;
   }
 
@@ -2363,48 +2389,63 @@ export function useAaMaker() {
 
     similarBitmapUndoStack.value.push(createSimilarBitmapHistorySnapshot(palette));
     restoreSimilarBitmapHistorySnapshot(palette, snapshot);
-    lastUndoHistoryTarget.value = "similarBitmap";
     return true;
   }
 
   function undoSimilarOrDocumentChange() {
-    if (lastUndoHistoryTarget.value === "similarBitmap" && undoSimilarBitmapChange()) {
-      return;
-    }
-
     undoChange();
   }
 
   function redoSimilarOrDocumentChange() {
-    if (lastUndoHistoryTarget.value === "similarBitmap" && redoSimilarBitmapChange()) {
-      return;
-    }
-
     redoChange();
   }
 
   function undoChange() {
-    if (lastUndoHistoryTarget.value === "charPalette" && undoCharPaletteChange()) {
-      return;
-    }
+    while (undoHistoryOrderStack.value.length > 0) {
+      const target = undoHistoryOrderStack.value.pop();
 
-    if (lastUndoHistoryTarget.value === "stampPalette" && undoStampPaletteChange()) {
-      return;
+      if (target && undoHistoryTargetChange(target)) {
+        appendRedoHistoryTarget(target);
+        return;
+      }
     }
-
-    undoDocumentChange();
   }
 
   function redoChange() {
-    if (lastUndoHistoryTarget.value === "charPalette" && redoCharPaletteChange()) {
-      return;
-    }
+    while (redoHistoryOrderStack.value.length > 0) {
+      const target = redoHistoryOrderStack.value.pop();
 
-    if (lastUndoHistoryTarget.value === "stampPalette" && redoStampPaletteChange()) {
-      return;
+      if (target && redoHistoryTargetChange(target)) {
+        appendUndoHistoryTarget(target);
+        return;
+      }
     }
+  }
 
-    redoDocumentChange();
+  function undoHistoryTargetChange(target: UndoHistoryTarget) {
+    switch (target) {
+      case "document":
+        return undoDocumentChange();
+      case "charPalette":
+        return undoCharPaletteChange();
+      case "stampPalette":
+        return undoStampPaletteChange();
+      case "similarBitmap":
+        return undoSimilarBitmapChange();
+    }
+  }
+
+  function redoHistoryTargetChange(target: UndoHistoryTarget) {
+    switch (target) {
+      case "document":
+        return redoDocumentChange();
+      case "charPalette":
+        return redoCharPaletteChange();
+      case "stampPalette":
+        return redoStampPaletteChange();
+      case "similarBitmap":
+        return redoSimilarBitmapChange();
+    }
   }
 
   function createCharPaletteHistorySnapshot(): CharPaletteHistorySnapshot {

@@ -385,7 +385,7 @@ function parseUnicodeQuery(query: string) {
           :key="`${activePalette.id}-${index}`"
           class="palette-button"
           :class="{
-            'is-selected': index === selectedPaletteCellIndex || (selectedPaletteCellIndex === null && char !== null && selectedChar === char),
+            'is-selected': index === selectedPaletteCellIndex,
             'is-wide': isWidePaletteChar(char),
           }"
           type="button"

@@ -896,6 +896,15 @@ button {
   background: var(--aa-palette-canvas-color, #d8d8d8);
 }
 
+.palette-button:hover,
+.palette-button:focus-visible {
+  position: relative;
+  z-index: 2;
+  outline: 1px solid rgba(0, 96, 255, 0.58);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+  opacity: 1;
+}
+
 .keyboard-palette,
 .unicode-palette,
 .similar-palette {
