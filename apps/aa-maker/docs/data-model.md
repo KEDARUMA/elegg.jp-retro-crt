@@ -297,7 +297,8 @@ type CharPalette =
   | NormalCharPalette
   | HistoryPalette
   | KeyboardInputPalette
-  | UnicodePalette;
+  | UnicodePalette
+  | SimilarPalette;
 ```
 
 ### NormalCharPalette
@@ -356,6 +357,32 @@ type UnicodePalette = {
 - Unicode 文字表を仮想スクロールで表示する。
 - 文字コード検索で該当位置へジャンプする。
 - 名称検索は将来対応。
+
+### SimilarPalette
+
+```ts
+type SimilarPalette = {
+  kind: "similar";
+  query: string;
+  targetBitmap: number[];
+  fontFamily: string;
+  canvasSize: 16 | 32;
+  matchingMethod: "pixel" | "pixelmatch" | "chamfer" | "edge-correlation" | "template" | "contour-shape";
+  matchingParams: ImageToAsciiMatchingParams;
+  threshold: number;
+  maxResults: number;
+  results: SimilarGlyphSearchResult[];
+  isSearching: boolean;
+  status: string;
+  checkedPageCount: number;
+  totalPageCount: number;
+  checkedCodePointCount: number;
+};
+```
+
+- `Image to AA` と同じ方式切り替えとパラメータを持つ。
+- 初期値は `Contour Shape`。
+- `▶ Matching` は方式コンボボックスと方式別パラメータの view だけを折りたたむ。
 
 ## Stamp
 

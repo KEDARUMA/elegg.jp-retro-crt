@@ -15,7 +15,11 @@ import EditableListModal from "./EditableListModal.vue";
 import InfoPanel from "./InfoPanel.vue";
 import type { Layer, Stamp, StampCell, Tool } from "../model/types";
 import type { WidthMode } from "../model/widthMode";
-import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
+import type {
+  SimilarGlyphSearchMatchingMethod,
+  SimilarGlyphSearchMatchingParams,
+  SimilarGlyphSearchResult,
+} from "../search/similarGlyphSearch";
 
 type NormalPalette = {
   kind: "normal";
@@ -57,6 +61,8 @@ type SimilarPalette = {
   targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
+  matchingMethod: SimilarGlyphSearchMatchingMethod;
+  matchingParams: SimilarGlyphSearchMatchingParams;
   threshold: number;
   maxResults: number;
   results: SimilarGlyphSearchResult[];

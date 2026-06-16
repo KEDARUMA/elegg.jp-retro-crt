@@ -911,6 +911,43 @@ button {
   padding: 8px;
 }
 
+.similar-palette {
+  display: grid;
+  gap: 6px;
+}
+
+.similar-match-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #eeeeee;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.similar-match-toggle-icon {
+  width: 12px;
+  flex: 0 0 12px;
+  text-align: center;
+}
+
+.similar-match-toggle-label {
+  min-width: 0;
+}
+
+.similar-match-section {
+  display: grid;
+  gap: 6px;
+}
+
 .palette-text-input {
   width: 100%;
   min-height: 24px;

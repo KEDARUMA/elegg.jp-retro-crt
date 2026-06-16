@@ -8,7 +8,11 @@ import plusIcon from "../assets/icons/plus.svg?raw";
 import trashIcon from "../assets/icons/trash.svg?raw";
 import { getCharWidth, getFirstGrapheme, shouldFitWideGlyphIntoNarrowCell } from "../model/gridOperations";
 import type { WidthMode } from "../model/widthMode";
-import type { SimilarGlyphSearchResult } from "../search/similarGlyphSearch";
+import type {
+  SimilarGlyphSearchMatchingMethod,
+  SimilarGlyphSearchMatchingParams,
+  SimilarGlyphSearchResult,
+} from "../search/similarGlyphSearch";
 
 type NormalPalette = {
   kind: "normal";
@@ -50,6 +54,8 @@ type SimilarPalette = {
   targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
+  matchingMethod: SimilarGlyphSearchMatchingMethod;
+  matchingParams: SimilarGlyphSearchMatchingParams;
   threshold: number;
   maxResults: number;
   results: SimilarGlyphSearchResult[];
@@ -157,6 +163,7 @@ const paletteDisplayStyle = computed(() => ({
   "--aa-palette-canvas-color": `#${props.canvasColor}`,
   "--aa-palette-fgdc": `#${props.foregroundDefaultColor}`,
 }));
+const isSimilarMatchingOpen = ref(false);
 
 function getPaletteCode(palette: NormalPalette, char: string | null, index: number) {
   if (typeof palette.startCode === "number") {
@@ -316,6 +323,25 @@ function handleKeyboardInput(value: string) {
 function handleKeyboardCompositionEnd(value: string) {
   isKeyboardComposing.value = false;
   emit("keyboardInput", value);
+}
+
+function toggleSimilarMatching() {
+  isSimilarMatchingOpen.value = !isSimilarMatchingOpen.value;
+}
+
+function normalizeSimilarMatchingMethod(value: string): SimilarGlyphSearchMatchingMethod {
+  if (
+    value === "pixel" ||
+    value === "pixelmatch" ||
+    value === "chamfer" ||
+    value === "edge-correlation" ||
+    value === "template" ||
+    value === "contour-shape"
+  ) {
+    return value;
+  }
+
+  return "contour-shape";
 }
 
 function jumpToUnicodeCode(query: string) {
@@ -538,6 +564,215 @@ function parseUnicodeQuery(query: string) {
           </div>
         </div>
       </div>
+      <button
+        class="similar-match-toggle"
+        type="button"
+        :aria-expanded="isSimilarMatchingOpen"
+        aria-label="Matching settings"
+        @click="toggleSimilarMatching"
+      >
+        <span class="similar-match-toggle-icon" aria-hidden="true">{{ isSimilarMatchingOpen ? "▼" : "▶" }}</span>
+        <span class="similar-match-toggle-label">Matching</span>
+      </button>
+      <div v-if="isSimilarMatchingOpen" class="similar-match-section">
+        <label class="similar-param similar-param--wide">
+          <span>Matching Method</span>
+          <select
+            class="palette-select"
+            :value="activePalette.matchingMethod"
+            :disabled="activePalette.isSearching"
+            @change="activePalette.matchingMethod = normalizeSimilarMatchingMethod(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="pixel">Pixel</option>
+            <option value="pixelmatch">Pixelmatch</option>
+            <option value="chamfer">Chamfer</option>
+            <option value="edge-correlation">Edge Correlation</option>
+            <option value="template">Template Matching</option>
+            <option value="contour-shape">Contour Shape</option>
+          </select>
+        </label>
+        <div v-if="activePalette.matchingMethod === 'pixel'" class="image-match-param-panel">
+          <div class="image-control-row image-control-row--three">
+            <label class="image-control-field">
+              <span>Pixel Weight</span>
+              <input v-model.number="activePalette.matchingParams.pixel.pixelWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Density Weight</span>
+              <input v-model.number="activePalette.matchingParams.pixel.densityWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Feature Weight</span>
+              <input v-model.number="activePalette.matchingParams.pixel.featureWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <div class="image-control-row">
+            <label class="image-control-field">
+              <span>Blank Bias</span>
+              <input v-model.number="activePalette.matchingParams.pixel.blankBias" type="number" min="-100" max="100" step="0.5" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Ink Penalty</span>
+              <input v-model.number="activePalette.matchingParams.pixel.inkMismatchPenalty" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+        </div>
+        <div v-else-if="activePalette.matchingMethod === 'pixelmatch'" class="image-match-param-panel">
+          <div class="image-control-row image-control-row--three">
+            <label class="image-control-field">
+              <span>Threshold</span>
+              <input v-model.number="activePalette.matchingParams.pixelmatch.threshold" type="number" min="0" max="1" step="0.01" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Alpha</span>
+              <input v-model.number="activePalette.matchingParams.pixelmatch.alpha" type="number" min="0" max="1" step="0.01" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Perceptual</span>
+              <input v-model.number="activePalette.matchingParams.pixelmatch.perceptualWeight" type="number" min="0" max="1" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <label class="image-check-field">
+            <input v-model="activePalette.matchingParams.pixelmatch.includeAA" type="checkbox" :disabled="activePalette.isSearching" />
+            <span>Include anti-alias</span>
+          </label>
+          <label class="image-check-field">
+            <input v-model="activePalette.matchingParams.pixelmatch.diffMask" type="checkbox" :disabled="activePalette.isSearching" />
+            <span>Diff mask</span>
+          </label>
+        </div>
+        <div v-else-if="activePalette.matchingMethod === 'chamfer'" class="image-match-param-panel">
+          <div class="image-control-row">
+            <label class="image-control-field">
+              <span>Metric</span>
+              <select v-model="activePalette.matchingParams.chamfer.metric" :disabled="activePalette.isSearching">
+                <option value="euclidean">Euclidean</option>
+                <option value="manhattan">Manhattan</option>
+                <option value="chebyshev">Chebyshev</option>
+              </select>
+            </label>
+            <label class="image-control-field">
+              <span>Max Distance</span>
+              <input v-model.number="activePalette.matchingParams.chamfer.maxDistance" type="number" min="1" max="32" step="0.5" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <div class="image-control-row image-control-row--three">
+            <label class="image-control-field">
+              <span>Foreground</span>
+              <input v-model.number="activePalette.matchingParams.chamfer.foregroundWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Background</span>
+              <input v-model.number="activePalette.matchingParams.chamfer.backgroundPenalty" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Bidirectional</span>
+              <input v-model.number="activePalette.matchingParams.chamfer.bidirectionalWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <div class="image-control-row">
+            <label class="image-control-field">
+              <span>Edge Threshold</span>
+              <input v-model.number="activePalette.matchingParams.chamfer.edgeThreshold" type="number" min="0" max="255" step="1" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Dilation</span>
+              <input v-model.number="activePalette.matchingParams.chamfer.dilationRadius" type="number" min="0" max="4" step="1" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+        </div>
+        <div v-else-if="activePalette.matchingMethod === 'edge-correlation'" class="image-match-param-panel">
+          <div class="image-control-row">
+            <label class="image-control-field">
+              <span>Edge Kernel</span>
+              <select v-model="activePalette.matchingParams.edgeCorrelation.edgeMode" :disabled="activePalette.isSearching">
+                <option value="sobel">Sobel</option>
+                <option value="laplacian">Laplacian</option>
+              </select>
+            </label>
+            <label class="image-control-field">
+              <span>Threshold</span>
+              <input v-model.number="activePalette.matchingParams.edgeCorrelation.threshold" type="number" min="0" max="255" step="1" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <div class="image-control-row image-control-row--three">
+            <label class="image-control-field">
+              <span>Correlation</span>
+              <input v-model.number="activePalette.matchingParams.edgeCorrelation.correlationWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Difference</span>
+              <input v-model.number="activePalette.matchingParams.edgeCorrelation.differenceWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Gradient</span>
+              <input v-model.number="activePalette.matchingParams.edgeCorrelation.gradientWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <label class="image-control-field">
+            <span>Threshold Penalty</span>
+            <input v-model.number="activePalette.matchingParams.edgeCorrelation.thresholdPenaltyWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+          </label>
+        </div>
+        <div v-else-if="activePalette.matchingMethod === 'template'" class="image-match-param-panel">
+          <label class="image-control-field">
+            <span>Mode</span>
+            <select v-model="activePalette.matchingParams.template.mode" :disabled="activePalette.isSearching">
+              <option value="ccoeff-normed">CCOEFF Normed</option>
+              <option value="ccorr-normed">CCORR Normed</option>
+              <option value="sqdiff-normed">SQDIFF Normed</option>
+            </select>
+          </label>
+          <div class="image-control-row image-control-row--three">
+            <label class="image-control-field">
+              <span>Correlation</span>
+              <input v-model.number="activePalette.matchingParams.template.correlationWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Difference</span>
+              <input v-model.number="activePalette.matchingParams.template.differenceWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Density</span>
+              <input v-model.number="activePalette.matchingParams.template.densityWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+        </div>
+        <div v-else-if="activePalette.matchingMethod === 'contour-shape'" class="image-match-param-panel">
+          <div class="image-control-row">
+            <label class="image-control-field">
+              <span>Method</span>
+              <select v-model="activePalette.matchingParams.contourShape.method" :disabled="activePalette.isSearching">
+                <option value="i1">I1</option>
+                <option value="i2">I2</option>
+                <option value="i3">I3</option>
+              </select>
+            </label>
+            <label class="image-control-field">
+              <span>Contour Threshold</span>
+              <input v-model.number="activePalette.matchingParams.contourShape.contourThreshold" type="number" min="0" max="255" step="1" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <div class="image-control-row image-control-row--three">
+            <label class="image-control-field">
+              <span>Shape</span>
+              <input v-model.number="activePalette.matchingParams.contourShape.shapeWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Area</span>
+              <input v-model.number="activePalette.matchingParams.contourShape.areaWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+            <label class="image-control-field">
+              <span>Centroid</span>
+              <input v-model.number="activePalette.matchingParams.contourShape.centroidWeight" type="number" min="0" max="10" step="0.05" :disabled="activePalette.isSearching" />
+            </label>
+          </div>
+          <label class="image-control-field">
+            <span>Empty Penalty</span>
+            <input v-model.number="activePalette.matchingParams.contourShape.emptyPenalty" type="number" min="0" max="100" step="1" :disabled="activePalette.isSearching" />
+          </label>
+        </div>
+      </div>
       <div class="similar-params">
         <label class="similar-param">
           <span>Threshold</span>
@@ -574,6 +809,7 @@ function parseUnicodeQuery(query: string) {
         <span>{{ activePalette.status }}</span>
         <span>{{ activePalette.results.length }} hits</span>
         <span>Scanned {{ activePalette.checkedPageCount }}/{{ activePalette.totalPageCount }} present pages</span>
+        <span>{{ activePalette.checkedCodePointCount }} codepoints checked</span>
       </div>
       <div class="similar-results" aria-label="Similar character results">
         <button

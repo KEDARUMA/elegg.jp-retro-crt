@@ -18,8 +18,18 @@ import { parseStampMdsSources } from "../model/parseStampMds";
 import type { Cell, CellGrid, Color, ColorScheme, Document as AaDocument, Highlight, Layer, Stamp, StampCell, Tool } from "../model/types";
 import type { WidthMode } from "../model/widthMode";
 import type { ImageToAsciiApplyGrid } from "../search/imageToAsciiMatching";
-import { startSimilarGlyphSearch } from "../search/similarGlyphSearch";
-import type { SimilarGlyphSearchHandle, SimilarGlyphSearchResult, UnicodeGlyphPageData } from "../search/similarGlyphSearch";
+import {
+  createDefaultSimilarGlyphSearchMatchingParams,
+  DEFAULT_SIMILAR_GLYPH_SEARCH_MATCHING_METHOD,
+  startSimilarGlyphSearch,
+} from "../search/similarGlyphSearch";
+import type {
+  SimilarGlyphSearchHandle,
+  SimilarGlyphSearchMatchingMethod,
+  SimilarGlyphSearchMatchingParams,
+  SimilarGlyphSearchResult,
+  UnicodeGlyphPageData,
+} from "../search/similarGlyphSearch";
 import { clamp } from "../utils/clamp";
 
 type NormalPalette = {
@@ -62,6 +72,8 @@ type SimilarPalette = {
   targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
+  matchingMethod: SimilarGlyphSearchMatchingMethod;
+  matchingParams: SimilarGlyphSearchMatchingParams;
   threshold: number;
   maxResults: number;
   results: SimilarGlyphSearchResult[];
@@ -276,6 +288,8 @@ export function useAaMaker() {
       targetBitmap: createBlankSimilarBitmap(16),
       fontFamily: SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
       canvasSize: 16,
+      matchingMethod: DEFAULT_SIMILAR_GLYPH_SEARCH_MATCHING_METHOD,
+      matchingParams: createDefaultSimilarGlyphSearchMatchingParams(),
       threshold: SIMILAR_GLYPH_DEFAULT_THRESHOLD,
       maxResults: SIMILAR_GLYPH_DEFAULT_MAX_RESULTS,
       results: [],
@@ -1707,14 +1721,15 @@ export function useAaMaker() {
     const queryChar = getFirstGrapheme(palette.query);
     const targetBitmap = getSimilarBitmapSnapshot(palette);
     const hasTargetBitmap = hasSimilarBitmapInk(targetBitmap);
-    const targetChar = queryChar || (!hasTargetBitmap ? toolState.selectedChar : null);
+    const shouldUseTargetBitmap = !queryChar && hasTargetBitmap;
+    const targetChar = queryChar || (!shouldUseTargetBitmap ? toolState.selectedChar : null);
 
     palette.results = [];
     palette.checkedPageCount = 0;
     palette.totalPageCount = 0;
     palette.checkedCodePointCount = 0;
 
-    if (!targetChar && !hasTargetBitmap) {
+    if (!targetChar && !shouldUseTargetBitmap) {
       palette.status = "Input required";
       return;
     }
@@ -1733,11 +1748,13 @@ export function useAaMaker() {
         {
           pageData: unicodeGlyphPages as UnicodeGlyphPageData,
           targetChar: targetChar ?? "",
-          targetBitmap: hasTargetBitmap ? targetBitmap : undefined,
+          targetBitmap: shouldUseTargetBitmap ? targetBitmap : undefined,
           fontFamily: palette.fontFamily.trim() || SIMILAR_GLYPH_DEFAULT_FONT_FAMILY,
           canvasSize: palette.canvasSize,
           threshold: palette.threshold,
           maxResults: palette.maxResults,
+          matchingMethod: palette.matchingMethod,
+          matchingParams: cloneSimilarMatchingParams(palette.matchingParams),
           workerCount: getUnicodeGlyphScanWorkerCount(),
           widthMode: widthMode.value,
         },
@@ -1749,7 +1766,7 @@ export function useAaMaker() {
             palette.checkedPageCount = progress.checkedPageCount;
             palette.totalPageCount = progress.totalPageCount;
             palette.checkedCodePointCount = progress.checkedCodePointCount;
-            palette.status = "Searching";
+            palette.status = progress.phase === "preparing" && progress.checkedPageCount === 0 ? "Preparing" : "Searching";
           },
           onDone(progress, cancelled) {
             similarGlyphSearchHandle = null;
@@ -3655,6 +3672,10 @@ export function useAaMaker() {
 
 function createBlankSimilarBitmap(canvasSize: 16 | 32) {
   return Array.from({ length: canvasSize * canvasSize }, () => 0);
+}
+
+function cloneSimilarMatchingParams(params: SimilarGlyphSearchMatchingParams) {
+  return JSON.parse(JSON.stringify(params)) as SimilarGlyphSearchMatchingParams;
 }
 
 function getSimilarBitmapSnapshot(palette: SimilarPalette) {

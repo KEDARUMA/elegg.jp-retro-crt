@@ -1,4 +1,15 @@
 import type { WidthMode } from "../model/widthMode";
+import { DEFAULT_IMAGE_TO_ASCII_MATCHING_PARAMS } from "./imageToAsciiMatching";
+import type { ImageToAsciiMatchingMethod, ImageToAsciiMatchingParams } from "./imageToAsciiMatching";
+
+export type SimilarGlyphSearchMatchingMethod = ImageToAsciiMatchingMethod;
+export type SimilarGlyphSearchMatchingParams = ImageToAsciiMatchingParams;
+
+export const DEFAULT_SIMILAR_GLYPH_SEARCH_MATCHING_METHOD: SimilarGlyphSearchMatchingMethod = "contour-shape";
+
+export function createDefaultSimilarGlyphSearchMatchingParams() {
+  return JSON.parse(JSON.stringify(DEFAULT_IMAGE_TO_ASCII_MATCHING_PARAMS)) as SimilarGlyphSearchMatchingParams;
+}
 
 export type SimilarGlyphSearchResult = {
   char: string;
@@ -28,11 +39,14 @@ export type SimilarGlyphSearchOptions = {
   canvasSize: number;
   threshold: number;
   maxResults: number;
+  matchingMethod: SimilarGlyphSearchMatchingMethod;
+  matchingParams: SimilarGlyphSearchMatchingParams;
   workerCount: number;
   widthMode: WidthMode;
 };
 
 export type SimilarGlyphSearchProgress = {
+  phase: "preparing" | "scanning";
   checkedPageCount: number;
   checkedCodePointCount: number;
   resultCount: number;
@@ -55,6 +69,8 @@ type WorkerRequest = {
   fontFamily: string;
   canvasSize: number;
   threshold: number;
+  matchingMethod: SimilarGlyphSearchMatchingMethod;
+  matchingParams: SimilarGlyphSearchMatchingParams;
   widthMode: WidthMode;
 };
 
@@ -69,6 +85,7 @@ type WorkerMessage =
   | {
       type: "progress";
       id: number;
+      phase?: "preparing" | "scanning";
       checkedPageCount: number;
       checkedCodePointCount: number;
     }
@@ -77,6 +94,11 @@ type WorkerMessage =
       id: number;
       checkedPageCount: number;
       checkedCodePointCount: number;
+    }
+  | {
+      type: "error";
+      id: number;
+      message: string;
     };
 
 type SimilarGlyphSearchCallbacks = {
@@ -95,10 +117,11 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
   const workers: Worker[] = [];
   const workerProgress = pageChunks.map(() => ({ checkedPageCount: 0, checkedCodePointCount: 0, done: false }));
   const targetBitmap = options.targetBitmap ? [...options.targetBitmap] : undefined;
+  const matchingParams = JSON.parse(JSON.stringify(options.matchingParams)) as SimilarGlyphSearchMatchingParams;
   let cancelled = false;
   let resultCount = 0;
 
-  callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length));
+  callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length, "preparing"));
 
   if (pages.length === 0) {
     queueMicrotask(() => finish(false));
@@ -117,6 +140,18 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
 
       worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
         const message = event.data;
+
+        if (cancelled) {
+          return;
+        }
+
+        if (message.type === "error") {
+          cancelled = true;
+          workers.forEach((item) => item.terminate());
+          callbacks.onError(message.message || "Similar glyph search worker failed.");
+          return;
+        }
+
         const progress = workerProgress[message.id];
 
         if (!progress || cancelled) {
@@ -133,7 +168,7 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
           if (nextResults.length > 0) {
             resultCount += nextResults.length;
             callbacks.onResults(nextResults);
-            callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length));
+            callbacks.onProgress(createProgress(workerProgress, resultCount, pages.length, "scanning"));
           }
 
           if (resultCount >= options.maxResults) {
@@ -150,7 +185,12 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
           progress.done = true;
         }
 
-        const currentProgress = createProgress(workerProgress, resultCount, pages.length);
+        const currentProgress = createProgress(
+          workerProgress,
+          resultCount,
+          pages.length,
+          message.type === "progress" ? (message.phase ?? "scanning") : "scanning",
+        );
         callbacks.onProgress(currentProgress);
 
         if (workerProgress.every((item) => item.done)) {
@@ -165,7 +205,7 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
 
         cancelled = true;
         workers.forEach((item) => item.terminate());
-        callbacks.onError(event.message || "Similar glyph search worker failed.");
+        callbacks.onError(createWorkerErrorMessage(event));
       };
 
       worker.postMessage({
@@ -180,6 +220,8 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
         fontFamily: options.fontFamily,
         canvasSize: options.canvasSize,
         threshold: options.threshold,
+        matchingMethod: options.matchingMethod,
+        matchingParams,
         widthMode: options.widthMode,
       } satisfies WorkerRequest);
     });
@@ -202,8 +244,18 @@ export function startSimilarGlyphSearch(options: SimilarGlyphSearchOptions, call
 
     cancelled = true;
     workers.forEach((worker) => worker.terminate());
-    callbacks.onDone(createProgress(workerProgress, resultCount, pages.length), wasCancelled);
+    callbacks.onDone(createProgress(workerProgress, resultCount, pages.length, "scanning"), wasCancelled);
   }
+}
+
+function createWorkerErrorMessage(event: ErrorEvent) {
+  if (!event.message) {
+    return "Similar glyph search worker failed.";
+  }
+
+  const location = event.filename ? `${event.filename}${event.lineno ? `:${event.lineno}${event.colno ? `:${event.colno}` : ""}` : ""}` : "";
+
+  return location ? `Similar glyph search worker failed: ${event.message} (${location})` : `Similar glyph search worker failed: ${event.message}`;
 }
 
 function expandPresentPages(pageData: UnicodeGlyphPageData) {
@@ -232,8 +284,14 @@ function createPageChunks(pages: number[], workerCount: number) {
   return chunks.filter((chunk) => chunk.length > 0);
 }
 
-function createProgress(workerProgress: { checkedPageCount: number; checkedCodePointCount: number }[], resultCount: number, totalPageCount: number) {
+function createProgress(
+  workerProgress: { checkedPageCount: number; checkedCodePointCount: number }[],
+  resultCount: number,
+  totalPageCount: number,
+  phase: SimilarGlyphSearchProgress["phase"],
+) {
   return {
+    phase,
     checkedPageCount: workerProgress.reduce((total, progress) => total + progress.checkedPageCount, 0),
     checkedCodePointCount: workerProgress.reduce((total, progress) => total + progress.checkedCodePointCount, 0),
     resultCount,
@@ -242,5 +300,9 @@ function createProgress(workerProgress: { checkedPageCount: number; checkedCodeP
 }
 
 function getWorkerCount(workerCount: number, pageCount: number) {
+  if (!Number.isFinite(workerCount)) {
+    return 1;
+  }
+
   return Math.max(1, Math.min(MAX_WORKER_COUNT, pageCount, Math.floor(workerCount)));
 }

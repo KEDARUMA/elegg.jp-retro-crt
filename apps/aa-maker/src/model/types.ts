@@ -1,3 +1,9 @@
+import type {
+  SimilarGlyphSearchMatchingMethod,
+  SimilarGlyphSearchMatchingParams,
+  SimilarGlyphSearchResult,
+} from "../search/similarGlyphSearch";
+
 export type Color = string;
 
 export type Cell = EmptyCell | CharCell | WideTailCell;
@@ -115,14 +121,11 @@ export type SimilarPalette = {
   targetBitmap: number[];
   fontFamily: string;
   canvasSize: 16 | 32;
+  matchingMethod: SimilarGlyphSearchMatchingMethod;
+  matchingParams: SimilarGlyphSearchMatchingParams;
   threshold: number;
   maxResults: number;
-  results: {
-    char: string;
-    codePoint: number;
-    score: number;
-    width: 1 | 2;
-  }[];
+  results: SimilarGlyphSearchResult[];
   isSearching: boolean;
   status: string;
   checkedPageCount: number;
