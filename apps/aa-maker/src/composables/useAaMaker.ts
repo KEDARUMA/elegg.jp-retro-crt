@@ -169,17 +169,8 @@ type EditableListItem = {
   name: string;
   protected?: boolean;
 };
-type LoadedPaletteChars = {
-  id: string;
-  chars: (string | null)[];
-};
-type LoadedAaMakerState = {
-  document: AaDocument;
-  palettes?: EditableListItem[];
-  activePaletteId?: string;
-  paletteChars?: LoadedPaletteChars[];
-  stampSets?: EditableListItem[];
-  activeStampSetId?: string;
+type LibraryCharPaletteFileItem = Omit<NormalPalette, "kind" | "chars"> & {
+  chars: string[];
 };
 
 const GRID_COLUMNS = 80;
@@ -252,7 +243,11 @@ export function useAaMaker() {
 
   setCharWidthMode(widthMode.value);
 
-  const normalPalettes = (charPalettes as Omit<NormalPalette, "kind">[]).map((palette) => ({ ...palette, kind: "normal" as const }));
+  const normalPalettes = (charPalettes as LibraryCharPaletteFileItem[]).map((palette) => ({
+    ...palette,
+    kind: "normal" as const,
+    chars: expandLibraryPaletteChars(palette.chars),
+  }));
   const defaultNormalPaletteById = new Map(normalPalettes.map((palette) => [palette.id, { ...palette, chars: [...palette.chars] }]));
   const initialStampSets = createStampSets(parseStampMdsSources(stampSources));
   const defaultStampSetById = new Map(initialStampSets.map((stampSet) => [stampSet.id, { ...stampSet, stamps: [...stampSet.stamps] }]));
@@ -694,7 +689,7 @@ export function useAaMaker() {
   function saveDocument(name: string) {
     const trimmedName = name.trim() || DEFAULT_DOCUMENT_NAME;
     documentModel.name = trimmedName;
-    downloadTextFile(`${toSafeJsonFilename(trimmedName)}.json`, JSON.stringify(createSavedAaMakerState(), null, 2), "application/json");
+    downloadTextFile(`${toSafeJsonFilename(trimmedName)}.json`, JSON.stringify(createSavedDocumentState(), null, 2), "application/json");
     hasUnsavedDocumentChange.value = false;
   }
 
@@ -721,45 +716,20 @@ export function useAaMaker() {
     try {
       const rawText = await file.text();
       const parsedValue = JSON.parse(rawText) as unknown;
-      const loadedState = normalizeLoadedAaMakerState(parsedValue);
+      const loadedDocument = normalizeLoadedAaMakerState(parsedValue);
 
-      if (!loadedState) {
+      if (!loadedDocument) {
         window.alert("Load failed: invalid AA Maker JSON.");
         return;
       }
 
-      resetNormalPaletteChars();
-      selectedPaletteCellIndex.value = null;
-
-      if (loadedState.palettes) {
-        applyPaletteList(loadedState.palettes);
-
-        if (loadedState.activePaletteId && palettes.some((palette) => palette.id === loadedState.activePaletteId)) {
-          activePaletteId.value = loadedState.activePaletteId;
-        }
-      }
-
-      if (loadedState.paletteChars) {
-        applyPaletteChars(loadedState.paletteChars);
-      }
-
-      if (loadedState.stampSets) {
-        applyStampSetList(loadedState.stampSets);
-
-        if (loadedState.activeStampSetId && stampSets.some((stampSet) => stampSet.id === loadedState.activeStampSetId)) {
-          activeStampSetId.value = loadedState.activeStampSetId;
-        }
-      }
-
-      Object.assign(documentModel, loadedState.document);
+      Object.assign(documentModel, loadedDocument);
       reflowDocumentToWidthMode(documentModel, widthMode.value);
-      reflowStampCollectionsToWidthMode(stampSets, widthMode.value);
-      toolState.selectedCharWidth = toolState.selectedChar === null ? 1 : getCharWidth(toolState.selectedChar, widthMode.value);
       toolState.highlight = { kind: "none" };
       draftSelection.value = null;
       cursorPosition.value = null;
       closeTextEditor();
-      clearAllHistory();
+      clearDocumentHistory();
       hasUnsavedDocumentChange.value = false;
     } catch {
       window.alert("Load failed: invalid AA Maker JSON.");
@@ -910,21 +880,8 @@ export function useAaMaker() {
     selectedPaletteCellIndex.value = index;
   }
 
-  function createSavedAaMakerState() {
-    return {
-      version: 2,
-      document: cloneDocument(documentModel),
-      palettes: createEditableListSnapshot(palettes),
-      activePaletteId: activePaletteId.value,
-      paletteChars: palettes
-        .filter((palette): palette is NormalPalette => palette.kind === "normal")
-        .map((palette) => ({
-          id: palette.id,
-          chars: [...palette.chars],
-        })),
-      stampSets: createEditableListSnapshot(stampSets),
-      activeStampSetId: activeStampSetId.value,
-    };
+  function createSavedDocumentState() {
+    return cloneDocument(documentModel);
   }
 
   function createSavedLibrary() {
@@ -1003,37 +960,6 @@ export function useAaMaker() {
     }
 
     return palette;
-  }
-
-  function resetNormalPaletteChars() {
-    for (const palette of palettes) {
-      if (palette.kind !== "normal") {
-        continue;
-      }
-
-      const defaultNormalPalette = defaultNormalPaletteById.get(palette.id);
-
-      if (defaultNormalPalette) {
-        palette.chars = [...defaultNormalPalette.chars];
-        continue;
-      }
-
-      palette.chars = Array.from({ length: EMPTY_NORMAL_PALETTE_CELL_COUNT }, () => null);
-    }
-  }
-
-  function applyPaletteChars(items: LoadedPaletteChars[]) {
-    const paletteById = new Map(palettes.filter((palette): palette is NormalPalette => palette.kind === "normal").map((palette) => [palette.id, palette]));
-
-    for (const item of items) {
-      const palette = paletteById.get(item.id);
-
-      if (!palette) {
-        continue;
-      }
-
-      palette.chars = [...item.chars];
-    }
   }
 
   function insertPaletteCell() {
@@ -2242,13 +2168,10 @@ export function useAaMaker() {
     redoHistoryOrderStack.value = [];
   }
 
-  function clearAllHistory() {
+  function clearDocumentHistory() {
     undoStack.value = [];
-    charPaletteUndoStack.value = [];
-    stampPaletteUndoStack.value = [];
-    similarBitmapUndoStack.value = [];
-    undoHistoryOrderStack.value = [];
-    clearRedoHistory();
+    redoStack.value = [];
+    removeHistoryOrderTarget("document");
   }
 
   function removeHistoryOrderTarget(target: UndoHistoryTarget) {
@@ -3853,6 +3776,16 @@ function createEmptyNormalPalette(id: string, name: string): NormalPalette {
   };
 }
 
+function expandLibraryPaletteChars(rows: string[]) {
+  const chars: (string | null)[] = [];
+
+  for (const row of rows) {
+    chars.push(...Array.from(row));
+  }
+
+  return chars;
+}
+
 function createLibraryPaletteSnapshot(palette: NormalPalette): LibraryCharPalette {
   return {
     id: palette.id,
@@ -4211,103 +4144,22 @@ function toSafeJsonFilename(name: string) {
   );
 }
 
-function normalizeLoadedAaMakerState(value: unknown): LoadedAaMakerState | null {
+function normalizeLoadedAaMakerState(value: unknown): AaDocument | null {
   const legacyDocument = normalizeLoadedDocument(value);
 
   if (legacyDocument) {
-    return {
-      document: legacyDocument,
-    };
+    return legacyDocument;
   }
 
   if (!isRecord(value) || (value.version !== 1 && value.version !== 2)) {
     return null;
   }
 
-  const loadedDocument = normalizeLoadedDocument(value.document);
-  const loadedPalettes = value.palettes === undefined ? undefined : normalizeLoadedEditableList(value.palettes);
-  const loadedPaletteChars = value.paletteChars === undefined ? undefined : normalizeLoadedPaletteChars(value.paletteChars);
-  const loadedStampSets = value.stampSets === undefined ? undefined : normalizeLoadedEditableList(value.stampSets);
-
-  if (!loadedDocument || loadedPalettes === null || loadedPaletteChars === null || loadedStampSets === null) {
+  if (!isRecord(value.document)) {
     return null;
   }
 
-  return {
-    document: loadedDocument,
-    palettes: loadedPalettes,
-    activePaletteId: typeof value.activePaletteId === "string" ? value.activePaletteId : undefined,
-    paletteChars: loadedPaletteChars,
-    stampSets: loadedStampSets,
-    activeStampSetId: typeof value.activeStampSetId === "string" ? value.activeStampSetId : undefined,
-  };
-}
-
-function normalizeLoadedEditableList(value: unknown): EditableListItem[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const items: EditableListItem[] = [];
-
-  for (const item of value) {
-    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
-      return null;
-    }
-
-    const id = item.id.trim();
-
-    if (!id) {
-      return null;
-    }
-
-    items.push({
-      id,
-      name: item.name.trim(),
-      protected: typeof item.protected === "boolean" ? item.protected : undefined,
-    });
-  }
-
-  return getUniqueEditableListItems(items);
-}
-
-function normalizeLoadedPaletteChars(value: unknown): LoadedPaletteChars[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const items: LoadedPaletteChars[] = [];
-  const seenIds = new Set<string>();
-
-  for (const item of value) {
-    if (!isRecord(item) || typeof item.id !== "string" || !Array.isArray(item.chars)) {
-      return null;
-    }
-
-    const id = item.id.trim();
-
-    if (!id || seenIds.has(id)) {
-      continue;
-    }
-
-    const chars: (string | null)[] = [];
-
-    for (const char of item.chars) {
-      if (char !== null && typeof char !== "string") {
-        return null;
-      }
-
-      chars.push(char);
-    }
-
-    items.push({
-      id,
-      chars,
-    });
-    seenIds.add(id);
-  }
-
-  return items;
+  return normalizeLoadedDocument(value.document);
 }
 
 function normalizeLoadedDocument(value: unknown): AaDocument | null {

@@ -101,7 +101,7 @@ function createSerializablePalette(palette: LibraryCharPalette) {
     name: palette.name,
     ...(palette.columns === undefined ? {} : { columns: palette.columns }),
     ...(palette.startCode === undefined ? {} : { startCode: palette.startCode }),
-    chars: palette.chars,
+    chars: serializeLibraryPaletteRows(palette.chars),
   };
 }
 
@@ -165,7 +165,7 @@ function normalizeLibraryPalettes(value: unknown): LibraryCharPalette[] | null {
   const seenIds = new Set<string>();
 
   for (const item of value) {
-    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string" || !Array.isArray(item.chars)) {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string" || !Array.isArray(item.chars) || item.chars.some((row) => typeof row !== "string")) {
       return null;
     }
 
@@ -175,15 +175,7 @@ function normalizeLibraryPalettes(value: unknown): LibraryCharPalette[] | null {
       continue;
     }
 
-    const chars: (string | null)[] = [];
-
-    for (const char of item.chars) {
-      if (char !== null && typeof char !== "string") {
-        return null;
-      }
-
-      chars.push(char);
-    }
+    const chars = flattenLibraryPaletteRows(item.chars);
 
     palettes.push({
       id,
@@ -196,6 +188,32 @@ function normalizeLibraryPalettes(value: unknown): LibraryCharPalette[] | null {
   }
 
   return palettes;
+}
+
+function serializeLibraryPaletteRows(chars: (string | null)[]) {
+  const rows: string[] = [];
+
+  for (let index = 0; index < chars.length; index += 16) {
+    const rowChars = chars.slice(index, index + 16).map((char) => char ?? " ");
+
+    while (rowChars.length < 16) {
+      rowChars.push(" ");
+    }
+
+    rows.push(rowChars.join(""));
+  }
+
+  return rows;
+}
+
+function flattenLibraryPaletteRows(rows: string[]) {
+  const chars: string[] = [];
+
+  for (const row of rows) {
+    chars.push(...Array.from(row));
+  }
+
+  return chars;
 }
 
 function normalizeLibraryStampIndex(value: unknown): LibraryStampIndexItem[] | null {
