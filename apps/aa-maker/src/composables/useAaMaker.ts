@@ -3891,7 +3891,7 @@ function createExportContent(format: ExportFormat, grid: ExportGrid, name: strin
 }
 
 function createPlainTextExport(grid: ExportGrid) {
-  return grid.map((row) => trimExportRow(row).filter(isExportContentCell).map((cell) => cell.char).join("")).join("\n");
+  return grid.map((row) => trimExportRow(row).filter(isExportContentCell).map((cell) => normalizeExportText(cell.char)).join("")).join("\n");
 }
 
 function createAnsiExport(grid: ExportGrid) {
@@ -3914,7 +3914,7 @@ function createAnsiExport(grid: ExportGrid) {
           hasActiveStyle = nextFGC !== null || nextBGC !== null;
         }
 
-        return `${prefix}${cell.char}`;
+        return `${prefix}${normalizeExportText(cell.char)}`;
       })
       .join(""),
   );
@@ -3934,8 +3934,9 @@ function createMdsExport(grid: ExportGrid) {
       .filter(isExportContentCell)
       .map((cell) => {
         let prefix = "";
-        const nextFGC = cell.sourceLayerId === null ? currentFGC : cell.fgc;
-        const nextBGC = cell.sourceLayerId === null ? currentBGC : cell.bgc;
+        const isEmptyCanvasCell = cell.sourceLayerId === null && cell.char === " ";
+        const nextFGC = isEmptyCanvasCell ? null : cell.sourceLayerId === null ? currentFGC : cell.fgc;
+        const nextBGC = isEmptyCanvasCell ? null : cell.sourceLayerId === null ? currentBGC : cell.bgc;
 
         if (nextFGC !== currentFGC) {
           if (hasActiveFGC) {
@@ -3965,7 +3966,7 @@ function createMdsExport(grid: ExportGrid) {
           currentBGC = nextBGC;
         }
 
-        return `${prefix}${escapeMdsText(cell.char)}`;
+        return `${prefix}${escapeMdsText(normalizeExportText(cell.char))}`;
       })
       .join(""),
   );
@@ -4025,7 +4026,7 @@ function createHtmlRuns(row: ExportGrid[number]) {
     }
 
     const width = cell.width;
-    const text = escapeHtmlText(cell.char);
+    const text = escapeHtmlText(normalizeExportText(cell.char));
 
     if (currentRun && currentRun.x + currentRun.width === x && currentRun.fgc === fgc && currentRun.bgc === bgc) {
       currentRun.width += width;
@@ -4088,6 +4089,10 @@ function hexToRgbTriplet(hexColor: string) {
 
 function escapeMdsText(value: string) {
   return value;
+}
+
+function normalizeExportText(value: string) {
+  return value.replaceAll(NBSP, " ");
 }
 
 function createHtmlColorStyle(fgc: string | null, bgc: string | null) {
