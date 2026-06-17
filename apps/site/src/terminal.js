@@ -55,6 +55,12 @@ const COLOR_NAMES = {
 
 const DEFAULT_TEXT_STATE = { fg: 10, bg: 0, bold: false, inverse: false, underline: false, strike: false };
 const GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+const measuredCharWidths = new Map();
+let measureDomHost;
+let measureDomText = null;
+let measuredDomFont = '';
+let measuredDomHalfWidth = null;
+let measuredDomFullWidth = null;
 
 function freshTextState() {
   return { ...DEFAULT_TEXT_STATE };
@@ -109,21 +115,113 @@ function isVariationSelectorCodePoint(codePoint) {
   return (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0xe0100 && codePoint <= 0xe01ef);
 }
 
+function getMeasureFont() {
+  return `${CRT_FONT_SIZE}px ${CRT_FONT_FAMILY}`;
+}
+
+function getMeasureDomText() {
+  if (measureDomHost !== undefined) {
+    return measureDomText;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('DOM text measurement requires document.');
+  }
+
+  const measureRoot = document.body ?? document.documentElement;
+
+  if (!measureRoot) {
+    throw new Error('DOM text measurement root is unavailable.');
+  }
+
+  const host = document.createElement('div');
+  host.style.position = 'absolute';
+  host.style.left = '-10000px';
+  host.style.top = '-10000px';
+  host.style.visibility = 'hidden';
+  host.style.pointerEvents = 'none';
+  host.style.whiteSpace = 'pre';
+  host.style.contain = 'layout style';
+
+  const text = document.createElement('span');
+  text.style.display = 'inline-block';
+  text.style.margin = '0';
+  text.style.padding = '0';
+  text.style.border = '0';
+  text.style.whiteSpace = 'pre';
+
+  host.appendChild(text);
+  measureRoot.appendChild(host);
+  measureDomHost = host;
+  measureDomText = text;
+  return text;
+}
+
+function ensureDomMeasureFont(text, font) {
+  if (measuredDomFont === font) {
+    return;
+  }
+
+  text.style.font = font;
+  measuredDomFont = font;
+  measuredDomHalfWidth = null;
+  measuredDomFullWidth = null;
+}
+
+function measureDomTextWidth(text, value) {
+  text.textContent = value;
+  return text.getBoundingClientRect().width;
+}
+
+function getMeasuredDomHalfWidth(text) {
+  if (measuredDomHalfWidth === null) {
+    measuredDomHalfWidth = measureDomTextWidth(text, 'A');
+  }
+
+  return measuredDomHalfWidth;
+}
+
+function getMeasuredDomFullWidth(text) {
+  if (measuredDomFullWidth === null) {
+    measuredDomFullWidth = measureDomTextWidth(text, 'あ');
+  }
+
+  return measuredDomFullWidth;
+}
+
+function toCellWidth(charWidth, halfWidth, fullWidth) {
+  if (halfWidth <= 0 || fullWidth <= 0 || charWidth < 0) {
+    throw new Error(`Invalid DOM text measurement: char=${charWidth}, half=${halfWidth}, full=${fullWidth}`);
+  }
+
+  return Math.abs(charWidth - fullWidth) < Math.abs(charWidth - halfWidth) ? 2 : 1;
+}
+
+function getWebCharWidth(char) {
+  if (char === '') {
+    return 1;
+  }
+
+  const font = getMeasureFont();
+  const cacheKey = `${font}\n${char}`;
+  const cachedWidth = measuredCharWidths.get(cacheKey);
+
+  if (cachedWidth) {
+    return cachedWidth;
+  }
+
+  const text = getMeasureDomText();
+  ensureDomMeasureFont(text, font);
+  const halfWidth = getMeasuredDomHalfWidth(text);
+  const fullWidth = getMeasuredDomFullWidth(text);
+  const charWidth = measureDomTextWidth(text, char);
+  const width = toCellWidth(charWidth, halfWidth, fullWidth);
+  measuredCharWidths.set(cacheKey, width);
+  return width;
+}
+
 function isFullWidth(char) {
-  const codePoint = char.codePointAt(0);
-  return (
-    codePoint === 0x3000 ||
-    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
-    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
-    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-    (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
-    (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
-    (codePoint >= 0xff01 && codePoint <= 0xff60) ||
-    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-    (codePoint >= 0x1f000 && codePoint <= 0x1faff && (codePoint < 0x1fb00 || codePoint > 0x1fbff)) ||
-    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
-  );
+  return getWebCharWidth(char) === 2;
 }
 
 function isBlankChar(char) {
