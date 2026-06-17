@@ -2,6 +2,8 @@ const DEFAULT_COLS = 64;
 const DEFAULT_ROWS = 16;
 export const CELL_W = 8;
 export const CELL_H = 16;
+const CRT_FONT_FAMILY = '"MS Gothic", monospace';
+const CRT_FONT_SIZE = 16;
 // 同時に発光アニメーションできる文字数。
 const MAX_GLYPH_TASKS = 14;
 // 白い矩形から文字画像へ到達するまでのフレーム数。
@@ -52,9 +54,59 @@ const COLOR_NAMES = {
 };
 
 const DEFAULT_TEXT_STATE = { fg: 10, bg: 0, bold: false, inverse: false, underline: false, strike: false };
+const GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
 function freshTextState() {
   return { ...DEFAULT_TEXT_STATE };
+}
+
+function getCrtFont(bold = false) {
+  return `${bold ? 700 : 400} ${CRT_FONT_SIZE}px ${CRT_FONT_FAMILY}`;
+}
+
+function readNextGrapheme(text, index) {
+  if (GRAPHEME_SEGMENTER) {
+    const iterator = GRAPHEME_SEGMENTER.segment(text.slice(index))[Symbol.iterator]();
+    const segment = iterator.next().value?.segment;
+    if (segment) {
+      return { value: segment, nextIndex: index + segment.length };
+    }
+  }
+
+  const firstCodePoint = text.codePointAt(index);
+  let nextIndex = index + (firstCodePoint > 0xffff ? 2 : 1);
+
+  while (nextIndex < text.length) {
+    const codePoint = text.codePointAt(nextIndex);
+    const size = codePoint > 0xffff ? 2 : 1;
+    if (isCombiningCodePoint(codePoint) || isVariationSelectorCodePoint(codePoint)) {
+      nextIndex += size;
+      continue;
+    }
+    if (codePoint === 0x200d && nextIndex + size < text.length) {
+      nextIndex += size;
+      const joinedCodePoint = text.codePointAt(nextIndex);
+      nextIndex += joinedCodePoint > 0xffff ? 2 : 1;
+      continue;
+    }
+    break;
+  }
+
+  return { value: text.slice(index, nextIndex), nextIndex };
+}
+
+function isCombiningCodePoint(codePoint) {
+  return (
+    (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+    (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
+    (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
+    (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
+    (codePoint >= 0xfe20 && codePoint <= 0xfe2f)
+  );
+}
+
+function isVariationSelectorCodePoint(codePoint) {
+  return (codePoint >= 0xfe00 && codePoint <= 0xfe0f) || (codePoint >= 0xe0100 && codePoint <= 0xe01ef);
 }
 
 function isFullWidth(char) {
@@ -172,35 +224,37 @@ function resolveTextColor(value) {
 function makeGlyphTarget({ char, width, fg, bg, bold, inverse, underline, strike }) {
   const fgColor = hexToRgb(resolveTextColor(inverse ? bg : fg));
   const bgColor = hexToRgb(resolveTextColor(inverse ? fg : bg));
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = width;
-  maskCanvas.height = CELL_H;
-  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-  maskCtx.clearRect(0, 0, width, CELL_H);
-  maskCtx.fillStyle = '#fff';
-  maskCtx.textBaseline = 'alphabetic';
-  maskCtx.font = `${bold ? 700 : 400} 16px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const glyphCanvas = document.createElement('canvas');
+  glyphCanvas.width = width;
+  glyphCanvas.height = CELL_H;
+  const glyphCtx = glyphCanvas.getContext('2d', { willReadFrequently: true });
+  glyphCtx.fillStyle = `rgb(${bgColor.r}, ${bgColor.g}, ${bgColor.b})`;
+  glyphCtx.fillRect(0, 0, width, CELL_H);
+  glyphCtx.fillStyle = `rgb(${fgColor.r}, ${fgColor.g}, ${fgColor.b})`;
+  glyphCtx.font = getCrtFont(bold);
+  glyphCtx.textAlign = 'center';
+  glyphCtx.textBaseline = 'middle';
   if (char) {
-    maskCtx.fillText(char, 0, 13);
+    glyphCtx.fillText(char, width / 2, CELL_H / 2);
   }
   if (underline) {
-    maskCtx.fillRect(0, CELL_H - 3, width, 1);
+    glyphCtx.fillRect(0, CELL_H - 3, width, 1);
   }
   if (strike) {
-    maskCtx.fillRect(0, Math.floor(CELL_H / 2), width, 1);
-  }
-  const mask = maskCtx.getImageData(0, 0, width, CELL_H).data;
-  const target = new ImageData(width, CELL_H);
-
-  for (let i = 0; i < target.data.length; i += 4) {
-    const alpha = mask[i + 3] / 255;
-    target.data[i] = Math.round(bgColor.r + (fgColor.r - bgColor.r) * alpha);
-    target.data[i + 1] = Math.round(bgColor.g + (fgColor.g - bgColor.g) * alpha);
-    target.data[i + 2] = Math.round(bgColor.b + (fgColor.b - bgColor.b) * alpha);
-    target.data[i + 3] = 255;
+    glyphCtx.fillRect(0, Math.floor(CELL_H / 2), width, 1);
   }
 
-  return target;
+  return glyphCtx.getImageData(0, 0, width, CELL_H);
+}
+
+function shouldPaintTextCell(cell) {
+  if (!cell || cell.wideTail) {
+    return false;
+  }
+  if (!isBlankChar(cell.ch || ' ')) {
+    return true;
+  }
+  return cell.bg !== DEFAULT_TEXT_STATE.bg || cell.inverse || cell.underline || cell.strike;
 }
 
 class ImageBlockTask {
@@ -283,6 +337,7 @@ export class Terminal {
     this.state = freshTextState();
     this.stateStack = [];
     this.colorStack = [];
+    this.bgColorStack = [];
     this.activeLink = null;
     this.command = '';
     this.lastCommand = '';
@@ -1075,8 +1130,9 @@ export class Terminal {
         continue;
       }
 
-      this.write(text[index]);
-      index += 1;
+      const grapheme = readNextGrapheme(text, index);
+      this.write(grapheme.value);
+      index = grapheme.nextIndex;
     }
   }
 
@@ -1090,14 +1146,14 @@ export class Terminal {
     if (body.startsWith('/')) {
       return { source, sourceContext: text, name: body.slice(1).trim().toLowerCase(), closing: true, attrs: {} };
     }
-    const colorMatch = body.match(/^color(?:\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+)))?$/i);
+    const colorMatch = body.match(/^(color|bgcolor)(?:\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+)))?$/i);
     if (colorMatch) {
       return {
         source,
         sourceContext: text,
-        name: 'color',
+        name: colorMatch[1].toLowerCase(),
         closing: false,
-        attrs: { value: colorMatch[1] ?? colorMatch[2] ?? colorMatch[3] ?? '' },
+        attrs: { value: colorMatch[2] ?? colorMatch[3] ?? colorMatch[4] ?? '' },
       };
     }
     const [name = '', ...rest] = body.split(/\s+/);
@@ -1125,6 +1181,12 @@ export class Terminal {
     }
     if (tag.name === 'color' && !tag.closing) {
       this.outputQueue.push(tag.attrs.value ? { type: 'color-push', fg: this.parseMdsColor(tag.attrs.value) } : { type: 'color-pop' });
+      return tag.source.length;
+    }
+    if (tag.name === 'bgcolor' && !tag.closing) {
+      this.outputQueue.push(
+        tag.attrs.value ? { type: 'bgcolor-push', bg: this.parseMdsColor(tag.attrs.value, DEFAULT_TEXT_STATE.bg) } : { type: 'bgcolor-pop' },
+      );
       return tag.source.length;
     }
     const rangeTags = {
@@ -1182,15 +1244,15 @@ export class Terminal {
     return text.toLowerCase().indexOf(close.toLowerCase(), start);
   }
 
-  parseMdsColor(value) {
+  parseMdsColor(value, fallback = DEFAULT_TEXT_STATE.fg) {
     const color = String(value || '').trim().toLowerCase();
     if (!color) {
-      return DEFAULT_TEXT_STATE.fg;
+      return fallback;
     }
     if (/^#[0-9a-f]{6}$/i.test(color)) {
       return color;
     }
-    return COLOR_NAMES[color] ?? DEFAULT_TEXT_STATE.fg;
+    return COLOR_NAMES[color] ?? fallback;
   }
 
   writeMdsImage(attrs, link) {
@@ -1401,6 +1463,7 @@ export class Terminal {
     this.stateStack = [];
     this.state = freshTextState();
     this.colorStack = [];
+    this.bgColorStack = [];
     this.activeLink = null;
     this.hoverRange = null;
     this.imageActionPending = false;
@@ -1427,6 +1490,7 @@ export class Terminal {
     this.state = freshTextState();
     this.stateStack = [];
     this.colorStack = [];
+    this.bgColorStack = [];
     this.activeLink = null;
     this.imageActionPending = false;
     this.hoverRange = null;
@@ -1435,14 +1499,14 @@ export class Terminal {
   }
 
   write(text) {
-    for (let i = 0; i < text.length; i += 1) {
+    for (let i = 0; i < text.length;) {
       const char = text[i];
       if (char === '\x1b' && text[i + 1] === '[') {
         const end = text.indexOf('m', i);
         const cursorEnd = text.slice(i).search(/[HfJ]/);
         if (end !== -1 && (cursorEnd === -1 || end < cursorEnd)) {
           this.outputQueue.push({ type: 'sgr', payload: text.slice(i + 2, end) });
-          i = end;
+          i = end + 1;
           continue;
         }
         if (cursorEnd !== -1) {
@@ -1452,16 +1516,18 @@ export class Terminal {
             payload: text.slice(i + 2, finalIndex),
             finalChar: text[finalIndex],
           });
-          i = finalIndex;
+          i = finalIndex + 1;
           continue;
         }
       }
       if (char === '\r' && text[i + 1] === '\n') {
         this.outputQueue.push({ type: 'char', char: '\n' });
-        i += 1;
+        i += 2;
         continue;
       }
-      this.outputQueue.push({ type: 'char', char });
+      const grapheme = readNextGrapheme(text, i);
+      this.outputQueue.push({ type: 'char', char: grapheme.value });
+      i = grapheme.nextIndex;
     }
   }
 
@@ -1503,6 +1569,17 @@ export class Terminal {
       if (item.type === 'color-pop') {
         if (this.colorStack.length > 0) {
           this.state = { ...this.state, fg: this.colorStack.pop() };
+        }
+        continue;
+      }
+      if (item.type === 'bgcolor-push') {
+        this.bgColorStack.push(this.state.bg);
+        this.state = { ...this.state, bg: item.bg };
+        continue;
+      }
+      if (item.type === 'bgcolor-pop') {
+        if (this.bgColorStack.length > 0) {
+          this.state = { ...this.state, bg: this.bgColorStack.pop() };
         }
         continue;
       }
@@ -1596,6 +1673,7 @@ export class Terminal {
     if (this.cursorX + width > this.cols) {
       this.newLine();
     }
+    const previousCell = this.cells[this.cursorY][this.cursorX];
     const cell = {
       ch: char,
       fg: this.state.fg,
@@ -1621,6 +1699,21 @@ export class Terminal {
         underline: cell.underline,
         strike: cell.strike,
       });
+    } else if (shouldPaintTextCell(cell) || shouldPaintTextCell(previousCell)) {
+      this.ctx.putImageData(
+        makeGlyphTarget({
+          char,
+          width: width * CELL_W,
+          fg: cell.fg,
+          bg: cell.bg,
+          bold: cell.bold,
+          inverse: cell.inverse,
+          underline: cell.underline,
+          strike: cell.strike,
+        }),
+        this.cursorX * CELL_W,
+        this.cursorY * CELL_H,
+      );
     }
     if (width === 2 && this.cursorX + 1 < this.cols) {
       this.cells[this.cursorY][this.cursorX + 1] = { ...cell, ch: '', wideTail: true };
@@ -1722,7 +1815,7 @@ export class Terminal {
         }
         if (cell.media === 'image-block') {
           this.repaintImageCell(cell, x, y, false);
-        } else if (!isBlankChar(cell.ch || ' ')) {
+        } else if (shouldPaintTextCell(cell)) {
           this.repaintCell(x, y, false);
         }
       }
