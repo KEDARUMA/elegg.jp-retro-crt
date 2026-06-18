@@ -1,0 +1,29 @@
+<clear><color="#2793a7">
+╔════════════════════════════════════════════════════════════════╗
+║  ELEPHANT GEOGRAPHICO / NEWS                                  ║
+╚════════════════════════════════════════════════════════════════╝
+<color>
+<a href="vfs:index.mds">HOME</a>  <a href="vfs:company.mds">会社概要</a>  <a href="vfs:business.mds">事業内容</a>  <a href="vfs:contact.mds">お問い合わせ</a>
+
+<color="#ffffff"><bgcolor="#000000"> お知らせ <color><bgcolor>
+
+更新情報、リリース、イベント告知などを掲載するページです。
+日付、カテゴリ、本文の順で追記してください。
+
+<color="#7dd3fc">[ 2026-06-18 / INFO ]<color>
+  サイトコンテンツの雛形を作成しました。
+  ここに公開時のお知らせ本文を入力します。
+
+<color="#7dd3fc">[ YYYY-MM-DD / RELEASE ]<color>
+  新しい制作物、アプリ、ツールの公開情報を入力します。
+
+<color="#7dd3fc">[ YYYY-MM-DD / NOTICE ]<color>
+  営業日、メンテナンス、重要なお知らせを入力します。
+
+<color="#7dd3fc">[ ARCHIVE SLOT ]<color>
+  ・過去のお知らせ一覧
+  ・カテゴリ別リンク
+  ・外部記事へのリンク
+
+<a href="vfs:index.mds">← トップへ戻る</a>
+
