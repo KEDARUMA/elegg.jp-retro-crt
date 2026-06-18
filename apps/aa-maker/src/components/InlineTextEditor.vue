@@ -10,11 +10,10 @@ type TextDraft = {
   value: string;
 };
 
-const GRID_COLUMNS = 80;
-const GRID_ROWS = 25;
-
 const props = defineProps<{
   draft: TextDraft | null;
+  gridWidth: number;
+  gridHeight: number;
   selectedForegroundColor: string;
   selectedBackgroundColor: string | null;
   canvasBackgroundColor: string;
@@ -38,8 +37,8 @@ const editorStyle = computed(() => {
   const heightCells = getEditorHeightCells(props.draft.value, props.draft.y);
 
   return {
-    left: `calc(var(--cell-width) * ${clamp(props.draft.x, 0, GRID_COLUMNS - widthCells)})`,
-    top: `calc(var(--cell-height) * ${clamp(props.draft.y, 0, GRID_ROWS - heightCells)})`,
+    left: `calc(var(--cell-width) * ${clamp(props.draft.x, 0, props.gridWidth - widthCells)})`,
+    top: `calc(var(--cell-height) * ${clamp(props.draft.y, 0, props.gridHeight - heightCells)})`,
     width: `calc(var(--cell-width) * ${widthCells})`,
     height: `calc(var(--cell-height) * ${heightCells})`,
     "--editor-width-cells": String(widthCells),
@@ -137,13 +136,13 @@ function insertTextAtCursor(text: string) {
 function getEditorWidthCells(value: string, x: number) {
   const lines = normalizeLines(value);
   const maxLineWidth = Math.max(1, ...lines.map((line) => getLineWidth(line)));
-  const remainingWidth = GRID_COLUMNS - clamp(x, 0, GRID_COLUMNS - 1);
+  const remainingWidth = props.gridWidth - clamp(x, 0, props.gridWidth - 1);
   return clamp(Math.max(6, maxLineWidth + 1), 1, Math.max(1, remainingWidth));
 }
 
 function getEditorHeightCells(value: string, y: number) {
   const lineCount = Math.max(1, countEditorLines(value));
-  const remainingHeight = GRID_ROWS - clamp(y, 0, GRID_ROWS - 1);
+  const remainingHeight = props.gridHeight - clamp(y, 0, props.gridHeight - 1);
   return clamp(Math.max(1, lineCount), 1, Math.max(1, remainingHeight));
 }
 

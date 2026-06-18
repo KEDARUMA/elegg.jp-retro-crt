@@ -7,7 +7,7 @@
 
 ## 基本方針
 
-- 論理グリッドは常に 80 列 x 25 行とする。
+- 論理グリッドの初期値は 80 列 x 25 行とし、幅・高さはそれぞれ 1 から 256 の範囲で変更できる。
 - 表示ズームはセル表示サイズだけを変え、モデル上の行列数は変えない。
 - 未配置セルと、空白キャラを配置したセルは区別する。
 - `キャンバスカラー` とセルの `BGC` は別の値として扱う。
@@ -130,7 +130,7 @@ type WideTailCell = {
 
 ## Layer
 
-`Layer` は 80x25 のセル配列と表示状態を持つ。
+`Layer` はドキュメントの幅・高さと同じセル配列と表示状態を持つ。
 
 ```ts
 type Layer = {
@@ -146,7 +146,7 @@ type CellGrid = Cell[][];
 
 ルール:
 
-- `cells` は 25 行 x 80 列。
+- `cells` は `Document.height` 行 x `Document.width` 列。
 - `Document.layers[0]` は最背面レイヤーとする。
 - `Document.layers[Document.layers.length - 1]` は最前面レイヤーとする。
 - UI のレイヤーリストは、上が前面、下が背面に見えるように `Document.layers` を逆順表示する。
@@ -163,8 +163,8 @@ type CellGrid = Cell[][];
 ```ts
 type Document = {
   version: 1;
-  width: 80;
-  height: 25;
+  width: number;
+  height: number;
   canvasBGC: Color;
   layers: Layer[];
   activeLayerId: string;
@@ -175,6 +175,7 @@ type Document = {
 ルール:
 
 - `canvasBGC` は仕様書上の `キャンバスカラー`。
+- `width` / `height` の初期値は `80` / `25`、範囲はそれぞれ `1..256`。
 - `Invert BG` は `canvasBGC` を反転する。
 - `Invert BG` では `canvasBGC` に合わせて `FGDC` を更新する。
 - `Invert BG` では配置済みセルの `BGC` は変更しない。
@@ -464,7 +465,7 @@ type ColorScheme = {
 
 View 先行実装では、以下の仮データを用意する。
 
-- 80x25 の空グリッド
+- 初期 80x25 の空グリッド
 - `Layer 1` から始まるレイヤーリスト
 - 選択中文字 `A`
 - `selectedFGC: "00ff00"`

@@ -71,20 +71,32 @@ function getCrtFont(bold = false) {
 }
 
 function readNextGrapheme(text, index) {
+  const firstCodePoint = text.codePointAt(index);
+  const firstCodePointSize = firstCodePoint > 0xffff ? 2 : 1;
+
+  // 単独の結合文字は、AA のセル配置を維持するため1文字ずつ扱う。
+  if (isCombiningCodePoint(firstCodePoint)) {
+    return { value: text.slice(index, index + firstCodePointSize), nextIndex: index + firstCodePointSize };
+  }
+
   if (GRAPHEME_SEGMENTER) {
     const iterator = GRAPHEME_SEGMENTER.segment(text.slice(index))[Symbol.iterator]();
     const segment = iterator.next().value?.segment;
     if (segment) {
-      return { value: segment, nextIndex: index + segment.length };
+      const standaloneCombiningIndex = findStandaloneCellCombiningIndex(segment);
+      const value = standaloneCombiningIndex > 0 ? segment.slice(0, standaloneCombiningIndex) : segment;
+      return { value, nextIndex: index + value.length };
     }
   }
 
-  const firstCodePoint = text.codePointAt(index);
-  let nextIndex = index + (firstCodePoint > 0xffff ? 2 : 1);
+  let nextIndex = index + firstCodePointSize;
 
   while (nextIndex < text.length) {
     const codePoint = text.codePointAt(nextIndex);
     const size = codePoint > 0xffff ? 2 : 1;
+    if (isStandaloneCellCombiningCodePoint(codePoint)) {
+      break;
+    }
     if (isCombiningCodePoint(codePoint) || isVariationSelectorCodePoint(codePoint)) {
       nextIndex += size;
       continue;
@@ -109,6 +121,23 @@ function isCombiningCodePoint(codePoint) {
     (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
     (codePoint >= 0xfe20 && codePoint <= 0xfe2f)
   );
+}
+
+function isStandaloneCellCombiningCodePoint(codePoint) {
+  return codePoint >= 0x035c && codePoint <= 0x0362;
+}
+
+function findStandaloneCellCombiningIndex(text) {
+  let index = 0;
+
+  for (const char of text) {
+    if (index > 0 && isStandaloneCellCombiningCodePoint(char.codePointAt(0))) {
+      return index;
+    }
+    index += char.length;
+  }
+
+  return -1;
 }
 
 function isVariationSelectorCodePoint(codePoint) {

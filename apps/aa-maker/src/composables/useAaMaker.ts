@@ -10,7 +10,16 @@ import stampLibraryIndex from "../data/library/stamps/index.json";
 import unicodeGlyphPages from "../data/static/unicode-glyph-pages.json";
 import { loadStoredAppSettings, saveStoredAppSettings, type AppLanguage } from "../model/appSettings";
 import { composeDocument } from "../model/composeLayers";
-import { DEFAULT_DOCUMENT_NAME, NBSP, createEmptyCell, createEmptyDocument, createInitialToolState, createLayer } from "../model/createDocument";
+import {
+  DEFAULT_DOCUMENT_NAME,
+  MAX_GRID_SIZE,
+  MIN_GRID_SIZE,
+  NBSP,
+  createEmptyCell,
+  createEmptyDocument,
+  createInitialToolState,
+  createLayer,
+} from "../model/createDocument";
 import { eraseCell, getCell, getCharWidth, getFirstGrapheme, getHeadCell, placeChar, setCharWidthMode, shouldFitWideGlyphIntoNarrowCell } from "../model/gridOperations";
 import { LIBRARY_ARCHIVE_FILENAME, createLibraryArchiveBlob, readLibraryArchiveFile, type LibraryCharPalette, type LibraryStampIndexItem, type LibraryStampSet } from "../model/libraryArchive";
 import { reflowDocumentToWidthMode, reflowStampCollectionsToWidthMode } from "../model/reflow";
@@ -173,13 +182,45 @@ type LibraryCharPaletteFileItem = Omit<NormalPalette, "kind" | "chars"> & {
   chars: string[];
 };
 
-const GRID_COLUMNS = 80;
-const GRID_ROWS = 25;
 const HISTORY_CELL_COUNT = 128;
 const EMPTY_NORMAL_PALETTE_CELL_COUNT = 256;
 const UNDO_HISTORY_LIMIT = 100;
 const HISTORY_STORAGE_KEY = "aa-maker.char-palette.history.v1";
 const PROTECTED_PALETTE_IDS = new Set(["cp437", "history", "keyboard-input", "unicode", "similar"]);
+const SPECIAL_ALPHABET_NUMBER_PALETTE_ID = "special-alphabet-numbers";
+const SPECIAL_ALPHABET_NUMBER_ROW_STARTS = new Set([
+  0x1d400,
+  0x1d41a,
+  0x1d434,
+  0x1d44e,
+  0x1d468,
+  0x1d482,
+  0x1d49c,
+  0x1d4b6,
+  0x1d4d0,
+  0x1d4ea,
+  0x1d504,
+  0x1d51e,
+  0x1d538,
+  0x1d552,
+  0x1d56c,
+  0x1d586,
+  0x1d5a0,
+  0x1d5ba,
+  0x1d5d4,
+  0x1d5ee,
+  0x1d608,
+  0x1d622,
+  0x1d63c,
+  0x1d656,
+  0x1d670,
+  0x1d68a,
+  0x1d7ce,
+  0x1d7d8,
+  0x1d7e2,
+  0x1d7ec,
+  0x1d7f6,
+]);
 const TOOL_CURSOR_OVERLAY_OFFSET_X = 11;
 const TOOL_CURSOR_OVERLAY_OFFSET_Y = 25;
 const TOOL_CURSOR_OVERLAY_SIZE = 24;
@@ -246,7 +287,7 @@ export function useAaMaker() {
   const normalPalettes = (charPalettes as LibraryCharPaletteFileItem[]).map((palette) => ({
     ...palette,
     kind: "normal" as const,
-    chars: expandLibraryPaletteChars(palette.chars),
+    chars: expandLibraryPaletteChars(palette.chars, palette.id, palette.columns ?? 16),
   }));
   const defaultNormalPaletteById = new Map(normalPalettes.map((palette) => [palette.id, { ...palette, chars: [...palette.chars] }]));
   const initialStampSets = createStampSets(parseStampMdsSources(stampSources));
@@ -301,7 +342,8 @@ export function useAaMaker() {
   const activeStampSetId = ref(stampSets[0]?.id ?? "");
   const activeStampId = ref("");
   const documentModel = reactive(createEmptyDocument(storedSettings.canvasBGC));
-  const toolState = reactive(createInitialToolState());
+  const toolState = reactive(createInitialToolState(documentModel.canvasBGC));
+  const isGridVisible = ref(true);
   const gridZoom = ref(toolState.zoom);
   const isDrawing = ref(false);
   const selectionAnchor = ref<{ x: number; y: number } | null>(null);
@@ -446,10 +488,12 @@ export function useAaMaker() {
     };
   });
 
-  const gridCells = Array.from({ length: GRID_COLUMNS * GRID_ROWS }, (_, index) => ({
-    x: index % GRID_COLUMNS,
-    y: Math.floor(index / GRID_COLUMNS),
-  }));
+  const gridCells = computed(() =>
+    Array.from({ length: documentModel.width * documentModel.height }, (_, index) => ({
+      x: index % documentModel.width,
+      y: Math.floor(index / documentModel.width),
+    })),
+  );
 
   const activePalette = computed(() => palettes.find((palette) => palette.id === activePaletteId.value) ?? palettes[0]);
   const activeStampSet = computed(() => stampSets.find((stampSet) => stampSet.id === activeStampSetId.value) ?? stampSets[0] ?? null);
@@ -492,6 +536,8 @@ export function useAaMaker() {
       return null;
     }
 
+    const isDarkCanvas = isDarkColor(documentModel.canvasBGC);
+
     return {
       left: `calc(var(--cell-width) * ${rect.x})`,
       top: `calc(var(--cell-height) * ${rect.y})`,
@@ -499,6 +545,9 @@ export function useAaMaker() {
       height: `calc(var(--cell-height) * ${rect.height})`,
       pointerEvents: draftSelection.value ? "none" : "auto",
       cursor: draftSelection.value ? "default" : "move",
+      "--selection-border-color": isDarkCanvas ? "#66e2ff" : "#005fcc",
+      "--selection-background-color": isDarkCanvas ? "rgba(102, 226, 255, 0.28)" : "rgba(0, 96, 255, 0.18)",
+      "--selection-shadow-color": isDarkCanvas ? "rgba(255, 255, 255, 0.85)" : "rgba(255, 255, 255, 0.38)",
     };
   });
   const cursorStyle = computed(() => {
@@ -508,17 +557,21 @@ export function useAaMaker() {
       return null;
     }
 
+    const isDarkCanvas = isDarkColor(documentModel.canvasBGC);
+
     return {
       left: `calc(var(--cell-width) * ${position.x})`,
       top: `calc(var(--cell-height) * ${position.y})`,
+      "--cursor-border-color": isDarkCanvas ? "#66e2ff" : "rgba(0, 96, 255, 0.72)",
+      "--cursor-shadow-color": isDarkCanvas ? "rgba(255, 255, 255, 0.8)" : "rgba(255, 255, 255, 0.38)",
     };
   });
   const gridLineStyle = computed(() => {
     const color = isDarkColor(documentModel.canvasBGC) ? "255, 255, 255" : "0, 0, 0";
 
     return {
-      "--grid-line-color": `rgba(${color}, 0.12)`,
-      "--grid-line-major-color": `rgba(${color}, 0.24)`,
+      "--grid-line-color": `rgba(${color}, ${isDarkColor(documentModel.canvasBGC) ? "0.28" : "0.14"})`,
+      "--grid-line-major-color": `rgba(${color}, ${isDarkColor(documentModel.canvasBGC) ? "0.56" : "0.3"})`,
     };
   });
   const selectedPaletteCode = computed(() => {
@@ -567,8 +620,8 @@ export function useAaMaker() {
     const panelHeightCells = heightCells + 2;
 
     return {
-      left: `calc(var(--cell-width) * ${clamp(textDraft.value.x, 0, GRID_COLUMNS - panelWidthCells)})`,
-      top: `calc(var(--cell-height) * ${clamp(textDraft.value.y, 0, GRID_ROWS - panelHeightCells)})`,
+      left: `calc(var(--cell-width) * ${clamp(textDraft.value.x, 0, documentModel.width - panelWidthCells)})`,
+      top: `calc(var(--cell-height) * ${clamp(textDraft.value.y, 0, documentModel.height - panelHeightCells)})`,
       width: `calc(var(--cell-width) * ${panelWidthCells})`,
       height: `calc(var(--cell-height) * ${panelHeightCells})`,
       "--editor-width-cells": String(widthCells),
@@ -725,6 +778,8 @@ export function useAaMaker() {
 
       Object.assign(documentModel, loadedDocument);
       reflowDocumentToWidthMode(documentModel, widthMode.value);
+      toolState.selectedFGC = getForegroundDefaultColor();
+      toolState.selectedBGC = null;
       toolState.highlight = { kind: "none" };
       draftSelection.value = null;
       cursorPosition.value = null;
@@ -801,6 +856,103 @@ export function useAaMaker() {
 
   function setLanguage(nextLanguage: AppLanguage) {
     language.value = nextLanguage;
+  }
+
+  function toggleGridVisibility() {
+    isGridVisible.value = !isGridVisible.value;
+  }
+
+  function resizeDocument(width: number, height: number) {
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      return false;
+    }
+
+    const nextWidth = clamp(Math.round(width), MIN_GRID_SIZE, MAX_GRID_SIZE);
+    const nextHeight = clamp(Math.round(height), MIN_GRID_SIZE, MAX_GRID_SIZE);
+
+    if (nextWidth === documentModel.width && nextHeight === documentModel.height) {
+      return true;
+    }
+
+    if (doesResizeDiscardContent(nextWidth, nextHeight)) {
+      const confirmed = window.confirm(`Resize grid to ${nextWidth} x ${nextHeight}? Content outside the new grid will be deleted.`);
+
+      if (!confirmed) {
+        return false;
+      }
+    }
+
+    stopDrawing();
+    closeTextEditor();
+    cancelHighlight();
+    recordDocumentHistory();
+
+    for (const layer of documentModel.layers) {
+      const nextCells = createEmptyCellGrid(nextWidth, nextHeight);
+
+      for (let y = 0; y < Math.min(documentModel.height, nextHeight); y += 1) {
+        for (let x = 0; x < Math.min(documentModel.width, nextWidth); x += 1) {
+          nextCells[y][x] = cloneCell(layer.cells[y][x]);
+        }
+
+        normalizeResizedRow(nextCells[y]);
+      }
+
+      layer.cells.splice(0, layer.cells.length, ...nextCells);
+    }
+
+    documentModel.width = nextWidth;
+    documentModel.height = nextHeight;
+    draftSelection.value = null;
+    cursorPosition.value = null;
+    closeSelectionContextMenu();
+    return true;
+  }
+
+  function doesResizeDiscardContent(width: number, height: number) {
+    if (width >= documentModel.width && height >= documentModel.height) {
+      return false;
+    }
+
+    const hasDiscardedLayerContent = documentModel.layers.some((layer) =>
+      layer.cells.some((row, y) => row.some((cell, x) => (x >= width || y >= height) && cell.kind !== "empty")),
+    );
+
+    if (hasDiscardedLayerContent) {
+      return true;
+    }
+
+    const highlight = getRectHighlight();
+
+    return Boolean(
+      highlight &&
+        highlight.contents.some((row, y) =>
+          row.some((cell, x) => (highlight.x + x >= width || highlight.y + y >= height) && cell.kind !== "empty"),
+        ),
+    );
+  }
+
+  function normalizeResizedRow(row: Cell[]) {
+    for (let x = 0; x < row.length; x += 1) {
+      const cell = row[x];
+
+      if (cell.kind === "char" && cell.width === 2) {
+        const tail = row[x + 1];
+
+        if (!tail || tail.kind !== "wide-tail" || tail.headX !== x) {
+          row[x] = createEmptyCell();
+        }
+        continue;
+      }
+
+      if (cell.kind === "wide-tail") {
+        const head = row[cell.headX];
+
+        if (!head || head.kind !== "char" || head.width !== 2 || cell.headX + 1 !== x) {
+          row[x] = createEmptyCell();
+        }
+      }
+    }
   }
 
   function setWidthMode(nextWidthMode: WidthMode) {
@@ -1248,7 +1400,7 @@ export function useAaMaker() {
   function addLayer() {
     recordDocumentHistory();
     const layerNumber = documentModel.nextLayerNumber;
-    const layer = createLayer(`layer-${layerNumber}`, `Layer ${layerNumber}`);
+    const layer = createLayer(`layer-${layerNumber}`, `Layer ${layerNumber}`, documentModel.width, documentModel.height);
 
     documentModel.layers.push(layer);
     documentModel.activeLayerId = layer.id;
@@ -2084,8 +2236,8 @@ export function useAaMaker() {
       kind: "rect",
       x: 0,
       y: 0,
-      width: GRID_COLUMNS,
-      height: GRID_ROWS,
+      width: documentModel.width,
+      height: documentModel.height,
     };
     finalizeDraftSelection();
     closeSelectionContextMenu();
@@ -2707,8 +2859,8 @@ export function useAaMaker() {
 
     return {
       kind: "rect",
-      x: clamp(position.x, 0, GRID_COLUMNS - 1),
-      y: clamp(position.y, 0, GRID_ROWS - 1),
+      x: clamp(position.x, 0, documentModel.width - 1),
+      y: clamp(position.y, 0, documentModel.height - 1),
       width: 1,
       height: 1,
     };
@@ -3005,8 +3157,8 @@ export function useAaMaker() {
   }
 
   function placeStampAtCenter(stamp: Stamp) {
-    const originX = Math.floor((GRID_COLUMNS - stamp.width) / 2);
-    const originY = Math.floor((GRID_ROWS - stamp.height) / 2);
+    const originX = Math.floor((documentModel.width - stamp.width) / 2);
+    const originY = Math.floor((documentModel.height - stamp.height) / 2);
 
     const contents = createEmptyCellGrid(stamp.width, stamp.height);
 
@@ -3047,8 +3199,8 @@ export function useAaMaker() {
   function openTextEditor(x: number, y: number) {
     closeSelectionContextMenu();
     textDraft.value = {
-      x: clamp(x, 0, GRID_COLUMNS - 1),
-      y: clamp(y, 0, GRID_ROWS - 1),
+      x: clamp(x, 0, documentModel.width - 1),
+      y: clamp(y, 0, documentModel.height - 1),
       value: "",
     };
   }
@@ -3099,13 +3251,13 @@ export function useAaMaker() {
   function getTextEditorWidthCells(value: string, x: number) {
     const lines = getClipboardLines(value.replace(/\t/g, "    "));
     const maxLineWidth = Math.max(1, ...lines.map((line) => getTextLineWidth(line)));
-    const remainingWidth = GRID_COLUMNS - clamp(x, 0, GRID_COLUMNS - 1);
+    const remainingWidth = documentModel.width - clamp(x, 0, documentModel.width - 1);
     return clamp(Math.max(6, maxLineWidth + 1), 1, Math.max(1, remainingWidth));
   }
 
   function getTextEditorHeightCells(value: string, y: number) {
     const lineCount = Math.max(1, countEditorLines(value));
-    const remainingHeight = GRID_ROWS - clamp(y, 0, GRID_ROWS - 1);
+    const remainingHeight = documentModel.height - clamp(y, 0, documentModel.height - 1);
     return clamp(Math.max(1, lineCount), 1, Math.max(1, remainingHeight));
   }
 
@@ -3210,10 +3362,10 @@ export function useAaMaker() {
       }
     }
 
-    left = clamp(left, 0, GRID_COLUMNS - 1);
-    top = clamp(top, 0, GRID_ROWS - 1);
-    right = clamp(right, left, GRID_COLUMNS - 1);
-    bottom = clamp(bottom, top, GRID_ROWS - 1);
+    left = clamp(left, 0, documentModel.width - 1);
+    top = clamp(top, 0, documentModel.height - 1);
+    right = clamp(right, left, documentModel.width - 1);
+    bottom = clamp(bottom, top, documentModel.height - 1);
 
     return {
       kind: "rect",
@@ -3280,7 +3432,7 @@ export function useAaMaker() {
         const targetY = highlight.y + y;
         const cell = highlight.contents[y]?.[x];
 
-        if (!cell || targetX < 0 || targetX >= GRID_COLUMNS || targetY < 0 || targetY >= GRID_ROWS) {
+        if (!cell || targetX < 0 || targetX >= documentModel.width || targetY < 0 || targetY >= documentModel.height) {
           continue;
         }
 
@@ -3306,7 +3458,7 @@ export function useAaMaker() {
         const targetX = originX + x;
         const targetY = originY + y;
 
-        if (cell.kind === "char" && targetX >= 0 && targetX < GRID_COLUMNS && targetY >= 0 && targetY < GRID_ROWS) {
+        if (cell.kind === "char" && targetX >= 0 && targetX < documentModel.width && targetY >= 0 && targetY < documentModel.height) {
           placeChar(layer, targetX, targetY, cell.char, cell.fgc, cell.bgc, cell.width);
         }
       });
@@ -3321,11 +3473,11 @@ export function useAaMaker() {
     }
 
     recordDocumentHistory();
-    clearLayerRect(layer, 0, 0, GRID_COLUMNS, GRID_ROWS);
+    clearLayerRect(layer, 0, 0, documentModel.width, documentModel.height);
 
     cells.forEach((row, y) => {
       row.forEach((cell, x) => {
-        if (!cell || cell.char === " " || x >= GRID_COLUMNS || y >= GRID_ROWS) {
+        if (!cell || cell.char === " " || x >= documentModel.width || y >= documentModel.height) {
           return;
         }
 
@@ -3342,7 +3494,7 @@ export function useAaMaker() {
         const targetX = originX + x;
         const targetY = originY + y;
 
-        if (targetX >= 0 && targetX < GRID_COLUMNS && targetY >= 0 && targetY < GRID_ROWS) {
+        if (targetX >= 0 && targetX < documentModel.width && targetY >= 0 && targetY < documentModel.height) {
           eraseCell(layer, targetX, targetY);
         }
       }
@@ -3497,6 +3649,7 @@ export function useAaMaker() {
     gridCells,
     gridLineStyle,
     info,
+    isGridVisible,
     isUnicodeGlyphPageScanRunning,
     layerList,
     palettes,
@@ -3532,6 +3685,8 @@ export function useAaMaker() {
     invertCanvasBackground,
     setCanvasColor,
     setLanguage,
+    resizeDocument,
+    toggleGridVisibility,
     setWidthMode,
     addLayer,
     clearSelectionColors,
@@ -3776,11 +3931,19 @@ function createEmptyNormalPalette(id: string, name: string): NormalPalette {
   };
 }
 
-function expandLibraryPaletteChars(rows: string[]) {
+function expandLibraryPaletteChars(rows: string[], paletteId: string, columns: number) {
   const chars: (string | null)[] = [];
 
   for (const row of rows) {
-    chars.push(...Array.from(row));
+    for (const char of Array.from(row)) {
+      if (paletteId === SPECIAL_ALPHABET_NUMBER_PALETTE_ID && SPECIAL_ALPHABET_NUMBER_ROW_STARTS.has(char.codePointAt(0) ?? -1)) {
+        while (chars.length % columns !== 0) {
+          chars.push(null);
+        }
+      }
+
+      chars.push(char);
+    }
   }
 
   return chars;
@@ -3977,6 +4140,8 @@ function createMdsExport(grid: ExportGrid) {
 function createHtmlExport(grid: ExportGrid, name: string, canvasBGC: Color) {
   const rows = grid.map(createHtmlRowMarkup).join("\n");
   const escapedTitle = escapeHtmlText(name.trim() || DEFAULT_DOCUMENT_NAME);
+  const gridWidth = grid[0]?.length ?? 1;
+  const gridHeight = grid.length || 1;
 
   return [
     "<!doctype html>",
@@ -3989,8 +4154,8 @@ function createHtmlExport(grid: ExportGrid, name: string, canvasBGC: Color) {
     ":root{--cell-width:8px;--cell-height:16px;--cell-font-size:16px;--aa-font-family:\"MS Gothic\",\"ＭＳ ゴシック\",\"Courier New\",monospace;}",
     "html,body{margin:0;min-height:100%;font-synthesis:none;}",
     `body{background:#${canvasBGC};}`,
-    `.aa-art{display:grid;grid-template-rows:repeat(${GRID_ROWS},var(--cell-height));width:calc(var(--cell-width) * ${GRID_COLUMNS});min-height:calc(var(--cell-height) * ${GRID_ROWS});margin:0;padding:16px;background:#${canvasBGC};}`,
-    `.aa-row{display:grid;grid-template-columns:repeat(${GRID_COLUMNS},var(--cell-width));height:var(--cell-height);}`,
+    `.aa-art{display:grid;grid-template-rows:repeat(${gridHeight},var(--cell-height));width:calc(var(--cell-width) * ${gridWidth});min-height:calc(var(--cell-height) * ${gridHeight});margin:0;padding:16px;background:#${canvasBGC};}`,
+    `.aa-row{display:grid;grid-template-columns:repeat(${gridWidth},var(--cell-width));height:var(--cell-height);}`,
     ".aa-run{display:block;height:var(--cell-height);overflow:visible;font-family:var(--aa-font-family);font-size:var(--cell-font-size);line-height:var(--cell-height);white-space:pre;}",
     "</style>",
     "</head>",
@@ -4168,7 +4333,17 @@ function normalizeLoadedAaMakerState(value: unknown): AaDocument | null {
 }
 
 function normalizeLoadedDocument(value: unknown): AaDocument | null {
-  if (!isRecord(value) || value.version !== 1 || value.width !== GRID_COLUMNS || value.height !== GRID_ROWS || !isColor(value.canvasBGC)) {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    !Number.isInteger(value.width) ||
+    !Number.isInteger(value.height) ||
+    (value.width as number) < MIN_GRID_SIZE ||
+    (value.width as number) > MAX_GRID_SIZE ||
+    (value.height as number) < MIN_GRID_SIZE ||
+    (value.height as number) > MAX_GRID_SIZE ||
+    !isColor(value.canvasBGC)
+  ) {
     return null;
   }
 
@@ -4176,7 +4351,9 @@ function normalizeLoadedDocument(value: unknown): AaDocument | null {
     return null;
   }
 
-  const layers = value.layers.map(normalizeLoadedLayer);
+  const width = value.width as number;
+  const height = value.height as number;
+  const layers = value.layers.map((layer) => normalizeLoadedLayer(layer, width, height));
 
   if (layers.some((layer) => layer === null)) {
     return null;
@@ -4189,8 +4366,8 @@ function normalizeLoadedDocument(value: unknown): AaDocument | null {
   return {
     version: 1,
     name: typeof value.name === "string" && value.name.trim() !== "" ? value.name.trim() : DEFAULT_DOCUMENT_NAME,
-    width: GRID_COLUMNS,
-    height: GRID_ROWS,
+    width,
+    height,
     canvasBGC: value.canvasBGC,
     layers: layers as Layer[],
     activeLayerId: value.activeLayerId,
@@ -4198,16 +4375,16 @@ function normalizeLoadedDocument(value: unknown): AaDocument | null {
   };
 }
 
-function normalizeLoadedLayer(value: unknown): Layer | null {
+function normalizeLoadedLayer(value: unknown, width: number, height: number): Layer | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string" || typeof value.visible !== "boolean" || typeof value.locked !== "boolean") {
     return null;
   }
 
-  if (!Array.isArray(value.cells) || value.cells.length !== GRID_ROWS) {
+  if (!Array.isArray(value.cells) || value.cells.length !== height) {
     return null;
   }
 
-  const cells = value.cells.map((row) => (Array.isArray(row) && row.length === GRID_COLUMNS ? row.map(normalizeLoadedCell) : null));
+  const cells = value.cells.map((row) => (Array.isArray(row) && row.length === width ? row.map((cell) => normalizeLoadedCell(cell, width)) : null));
 
   if (cells.some((row) => row === null || row.some((cell) => cell === null))) {
     return null;
@@ -4222,7 +4399,7 @@ function normalizeLoadedLayer(value: unknown): Layer | null {
   };
 }
 
-function normalizeLoadedCell(value: unknown): Cell | null {
+function normalizeLoadedCell(value: unknown, width: number): Cell | null {
   if (!isRecord(value) || typeof value.kind !== "string") {
     return null;
   }
@@ -4231,7 +4408,7 @@ function normalizeLoadedCell(value: unknown): Cell | null {
     return { kind: "empty" };
   }
 
-  if (value.kind === "wide-tail" && Number.isInteger(value.headX) && value.headX >= 0 && value.headX < GRID_COLUMNS) {
+  if (value.kind === "wide-tail" && Number.isInteger(value.headX) && value.headX >= 0 && value.headX < width) {
     return {
       kind: "wide-tail",
       headX: value.headX,

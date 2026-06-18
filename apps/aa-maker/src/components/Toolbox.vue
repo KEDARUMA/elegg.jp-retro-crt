@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import gridIcon from "../assets/icons/grid.svg?raw";
 import SelectedChar from "./SelectedChar.vue";
 import type { Tool } from "../model/types";
 
@@ -18,12 +19,14 @@ defineProps<{
   selectedBackgroundColor: string | null;
   canvasBackgroundColor: string;
   selectedCharAttentionKey: number;
+  isGridVisible: boolean;
 }>();
 
 defineEmits<{
   selectTool: [tool: Tool];
   openSelectedForegroundColorPicker: [];
   openSelectedBackgroundColorPicker: [];
+  toggleGridVisibility: [];
 }>();
 
 function getToolTitle(tool: ToolItem) {
@@ -58,6 +61,17 @@ function getToolTitle(tool: ToolItem) {
           />
         </div>
       </template>
+      <button
+        class="tool-button grid-visibility-button"
+        :class="{ 'is-selected': isGridVisible }"
+        type="button"
+        :title="isGridVisible ? 'グリッドを非表示' : 'グリッドを表示'"
+        :aria-label="isGridVisible ? 'グリッドを非表示' : 'グリッドを表示'"
+        :aria-pressed="isGridVisible"
+        @click="$emit('toggleGridVisibility')"
+      >
+        <span class="tool-icon" aria-hidden="true" v-html="gridIcon"></span>
+      </button>
     </div>
   </aside>
 </template>

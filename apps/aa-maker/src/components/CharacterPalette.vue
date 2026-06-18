@@ -384,7 +384,7 @@ function parseUnicodeQuery(query: string) {
 </script>
 
 <template>
-  <section class="panel-section" :style="paletteDisplayStyle">
+  <section class="panel-section character-palette-view" :style="paletteDisplayStyle">
     <h2 class="character-palette-title">
       <span class="character-palette-name">Character Palette</span>
       <span v-if="selectedCharacterLabel" class="character-palette-selection">{{ selectedCharacterLabel }}</span>

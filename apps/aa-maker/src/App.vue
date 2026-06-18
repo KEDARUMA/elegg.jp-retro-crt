@@ -72,6 +72,10 @@ function applySettingsCanvasColor(_mode: "fgc" | "bgc", color: string | null) {
   isSettingsCanvasColorPickerOpen.value = false;
 }
 
+function applySettingsGridSize(width: number, height: number) {
+  aaMaker.resizeDocument(width, height);
+}
+
 function handleImageToAsciiToast(payload: { kind: Exclude<ToastKind, "info">; message: string }) {
   pushToast(payload.message, payload.kind);
 }
@@ -105,12 +109,17 @@ function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
       :selected-background-color="aaMaker.toolState.selectedBGC"
       :canvas-background-color="aaMaker.documentModel.canvasBGC"
       :selected-char-attention-key="aaMaker.selectedCharAttentionKey.value"
+      :is-grid-visible="aaMaker.isGridVisible.value"
       @select-tool="aaMaker.selectTool"
       @open-selected-foreground-color-picker="aaMaker.openSelectedFGCColorPicker"
       @open-selected-background-color-picker="aaMaker.openSelectedBGCColorPicker"
+      @toggle-grid-visibility="aaMaker.toggleGridVisibility"
     />
     <EditorGrid
-      :cells="aaMaker.gridCells"
+      :cells="aaMaker.gridCells.value"
+      :grid-width="aaMaker.documentModel.width"
+      :grid-height="aaMaker.documentModel.height"
+      :is-grid-visible="aaMaker.isGridVisible.value"
       :get-cell-text="aaMaker.getCellText"
       :get-cell-class="aaMaker.getCellClass"
       :get-cell-glyph-class="aaMaker.getCellGlyphClass"
@@ -244,9 +253,12 @@ function applyImageToAsciiArt(cells: ImageToAsciiApplyGrid) {
       :language="aaMaker.language.value"
       :canvas-color="aaMaker.documentModel.canvasBGC"
       :width-mode="aaMaker.widthMode.value"
+      :grid-width="aaMaker.documentModel.width"
+      :grid-height="aaMaker.documentModel.height"
       @close="closeSettingsModal"
       @update-language="aaMaker.setLanguage"
       @update-width-mode="aaMaker.setWidthMode"
+      @update-grid-size="applySettingsGridSize"
       @open-canvas-color-picker="openSettingsCanvasColorPicker"
     />
     <ColorPickerModal

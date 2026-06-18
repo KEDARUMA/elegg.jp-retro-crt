@@ -18,8 +18,11 @@ type StampPreviewCell = {
   glyphClassName: string[];
 };
 
-defineProps<{
+const props = defineProps<{
   cells: GridCell[];
+  gridWidth: number;
+  gridHeight: number;
+  isGridVisible: boolean;
   getCellText: (x: number, y: number) => string;
   getCellClass: (x: number, y: number) => string[];
   getCellGlyphClass: (x: number, y: number) => string[];
@@ -51,8 +54,8 @@ const emit = defineEmits<{
   textEditorCancel: [];
 }>();
 
-const topRulerMarks = Array.from({ length: 9 }, (_, index) => index * 10);
-const leftRulerMarks = Array.from({ length: 3 }, (_, index) => index * 10);
+const topRulerMarks = computed(() => Array.from({ length: Math.floor((props.gridWidth - 1) / 10) + 1 }, (_, index) => index * 10));
+const leftRulerMarks = computed(() => Array.from({ length: Math.floor((props.gridHeight - 1) / 10) + 1 }, (_, index) => index * 10));
 const gridWrapRef = ref<HTMLElement | null>(null);
 const editorStageRef = ref<HTMLElement | null>(null);
 const viewportSize = ref({ width: 0, height: 0 });
@@ -76,6 +79,14 @@ const activeHighlightDrag = ref<{
 } | null>(null);
 const stageStyle = computed(() => ({
   transform: `translate(${panOffset.value.x}px, ${panOffset.value.y}px)`,
+  width: `calc(var(--cell-width) * ${props.gridWidth})`,
+  height: `calc(var(--cell-height) * ${props.gridHeight})`,
+}));
+const gridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${props.gridWidth}, var(--cell-width))`,
+  gridTemplateRows: `repeat(${props.gridHeight}, var(--cell-height))`,
+  width: `calc(var(--cell-width) * ${props.gridWidth})`,
+  height: `calc(var(--cell-height) * ${props.gridHeight})`,
 }));
 const gridPosition = computed(() => ({
   x: stagePosition.value.x,
@@ -126,8 +137,8 @@ const cornerStyle = computed(() => ({
   top: `${cornerPosition.value.y}px`,
 }));
 const visibleStartCell = computed(() => ({
-  x: clamp(Math.floor((visibleGridRect.value.left - gridPosition.value.x) / Math.max(1, getCellWidth())), 0, 79),
-  y: clamp(Math.floor((visibleGridRect.value.top - gridPosition.value.y) / Math.max(1, getCellHeight())), 0, 24),
+  x: clamp(Math.floor((visibleGridRect.value.left - gridPosition.value.x) / Math.max(1, getCellWidth())), 0, props.gridWidth - 1),
+  y: clamp(Math.floor((visibleGridRect.value.top - gridPosition.value.y) / Math.max(1, getCellHeight())), 0, props.gridHeight - 1),
 }));
 
 let resizeObserver: ResizeObserver | null = null;
@@ -330,11 +341,11 @@ function updateLayoutSize() {
 }
 
 function getCellWidth() {
-  return stageSize.value.width / 80;
+  return stageSize.value.width / props.gridWidth;
 }
 
 function getCellHeight() {
-  return stageSize.value.height / 25;
+  return stageSize.value.height / props.gridHeight;
 }
 
 function getCellFromEvent(event: MouseEvent) {
@@ -349,8 +360,8 @@ function getCellFromEvent(event: MouseEvent) {
   const y = Math.floor((event.clientY - wrapRect.top - stagePosition.value.y) / cellHeight);
 
   return {
-    x: clamp(x, 0, 79),
-    y: clamp(y, 0, 24),
+    x: clamp(x, 0, props.gridWidth - 1),
+    y: clamp(y, 0, props.gridHeight - 1),
   };
 }
 
@@ -369,7 +380,14 @@ function getCellFromEvent(event: MouseEvent) {
       @auxclick.prevent
     >
       <div ref="editorStageRef" class="editor-stage" :style="stageStyle">
-        <div class="aa-grid" role="grid" aria-label="80 by 25 ASCII art grid" @pointermove="handleGridPointerMove" @pointerleave="handleGridPointerLeave">
+        <div
+          class="aa-grid"
+          role="grid"
+          :aria-label="`${gridWidth} by ${gridHeight} ASCII art grid`"
+          :style="gridStyle"
+          @pointermove="handleGridPointerMove"
+          @pointerleave="handleGridPointerLeave"
+        >
           <div
             v-for="cell in cells"
             :key="`${cell.x},${cell.y}`"
@@ -386,7 +404,7 @@ function getCellFromEvent(event: MouseEvent) {
           >
             <span class="aa-glyph" :class="getCellGlyphClass(cell.x, cell.y)">{{ getCellText(cell.x, cell.y) }}</span>
           </div>
-          <div class="aa-grid-lines" :style="gridLineStyle" aria-hidden="true"></div>
+          <div v-if="isGridVisible" class="aa-grid-lines" :style="gridLineStyle" aria-hidden="true"></div>
           <div v-if="cursorStyle" class="aa-cursor" :style="cursorStyle" aria-hidden="true"></div>
           <div
             v-if="selectionStyle"
@@ -432,6 +450,8 @@ function getCellFromEvent(event: MouseEvent) {
             :selected-foreground-color="selectedForegroundColor"
             :selected-background-color="selectedBackgroundColor"
             :canvas-background-color="canvasBackgroundColor"
+            :grid-width="gridWidth"
+            :grid-height="gridHeight"
             :width-mode="widthMode"
             @update-value="(value) => $emit('textEditorUpdate', value)"
             @confirm="$emit('textEditorConfirm')"

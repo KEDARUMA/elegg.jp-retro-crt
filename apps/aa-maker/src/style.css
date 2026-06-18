@@ -7,6 +7,7 @@
   --ruler-top-height: 24px;
   --ruler-left-width: 16px;
   --aa-font-family: "MS Gothic", monospace;
+  --character-palette-view-max-height: 800px;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -185,6 +186,22 @@ button {
   opacity: 0.45;
 }
 
+.grid-visibility-button {
+  margin-top: 6px;
+}
+
+.grid-visibility-button:not(.is-selected) {
+  opacity: 0.5;
+}
+
+.grid-visibility-button.is-selected::before {
+  background: #66e2ff;
+}
+
+.grid-visibility-button .tool-icon {
+  color: #eeeeee;
+}
+
 .tool-cursor-overlay {
   position: fixed;
   z-index: 60;
@@ -304,8 +321,6 @@ button {
 
 .editor-stage {
   position: relative;
-  width: calc(var(--cell-width) * 80);
-  height: calc(var(--cell-height) * 25);
   will-change: transform;
 }
 
@@ -379,10 +394,6 @@ button {
 .aa-grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(80, var(--cell-width));
-  grid-template-rows: repeat(25, var(--cell-height));
-  width: calc(var(--cell-width) * 80);
-  height: calc(var(--cell-height) * 25);
   background: #ffffff;
   user-select: none;
 }
@@ -457,16 +468,17 @@ button {
   z-index: 6;
   width: var(--cell-width);
   height: var(--cell-height);
-  border: 1px solid rgba(0, 96, 255, 0.58);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+  border: 1px solid var(--cursor-border-color);
+  box-shadow: inset 0 0 0 1px var(--cursor-shadow-color);
   pointer-events: none;
 }
 
 .aa-selection {
   position: absolute;
   z-index: 5;
-  border: 1px solid #111111;
-  background: rgba(0, 96, 255, 0.18);
+  border: 1px solid var(--selection-border-color);
+  background: var(--selection-background-color);
+  box-shadow: inset 0 0 0 1px var(--selection-shadow-color);
   cursor: move;
   pointer-events: auto;
   touch-action: none;
@@ -576,6 +588,11 @@ button {
 
 .panel-section {
   background: #474747;
+}
+
+.character-palette-view {
+  max-height: var(--character-palette-view-max-height);
+  overflow-y: auto;
 }
 
 .panel-section--grow {
@@ -1461,6 +1478,38 @@ button {
   background: #232323;
   color: #eeeeee;
   padding: 0 8px;
+}
+
+.settings-grid-size {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.settings-grid-size label {
+  display: grid;
+  gap: 4px;
+  color: #bbbbbb;
+  font-size: 11px;
+}
+
+.settings-grid-size input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #555555;
+  background: #232323;
+  color: #eeeeee;
+  font: inherit;
+}
+
+.settings-grid-size button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid #555555;
+  background: #3a3a3a;
+  color: #eeeeee;
 }
 
 .settings-canvas-color-button {

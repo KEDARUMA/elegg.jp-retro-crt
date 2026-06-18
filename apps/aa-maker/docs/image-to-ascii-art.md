@@ -9,7 +9,7 @@
 
 - `Image` メニューは `apps/aa-maker/src/components/TopMenu.vue:126` にある。
 - モーダル類は `apps/aa-maker/src/App.vue:196` 以降のように `App.vue` 直下で開閉する。
-- 編集グリッドは `apps/aa-maker/src/model/createDocument.ts:3` の 80 列、`apps/aa-maker/src/model/createDocument.ts:4` の 25 行を使う。
+- `Image to AA` の変換サイズは編集グリッド設定とは独立して 80x25 固定とし、今回の可変グリッド対応範囲には含めない。
 - セル構造は `apps/aa-maker/src/model/types.ts:3`、半角/全角セルは `apps/aa-maker/src/model/types.ts:9` と `apps/aa-maker/src/model/types.ts:17` に従う。
 - 文字配置の基本処理は `apps/aa-maker/src/model/gridOperations.ts:42` の `placeChar` と同じ占有ルールを使う。
 - Unicode の表示可能ページ情報は `apps/aa-maker/src/data/static/unicode-glyph-pages.json:1` を使う。

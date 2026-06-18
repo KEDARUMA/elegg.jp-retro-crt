@@ -38,8 +38,8 @@ export type Layer = {
 export type Document = {
   version: 1;
   name: string;
-  width: 80;
-  height: 25;
+  width: number;
+  height: number;
   canvasBGC: Color;
   layers: Layer[];
   activeLayerId: string;

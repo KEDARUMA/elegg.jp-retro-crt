@@ -1,4 +1,4 @@
-import { GRID_WIDTH, createEmptyCell } from "./createDocument";
+import { createEmptyCell } from "./createDocument";
 import { getCharWidth } from "./gridOperations";
 import type { Cell, CellGrid, Document, Stamp, StampCell } from "./types";
 import type { WidthMode } from "./widthMode";
@@ -15,7 +15,7 @@ type ReflowedStampRows = {
 
 export function reflowDocumentToWidthMode(documentModel: Document, widthMode: WidthMode) {
   for (const layer of documentModel.layers) {
-    const nextCells = reflowCellGrid(layer.cells, widthMode);
+    const nextCells = reflowCellGrid(layer.cells, widthMode, documentModel.width);
     layer.cells.splice(0, layer.cells.length, ...nextCells);
   }
 }
@@ -78,11 +78,11 @@ function reflowStampRow(row: (StampCell | null)[], widthMode: WidthMode) {
   return nextRow;
 }
 
-function reflowCellGrid(cellGrid: CellGrid, widthMode: WidthMode) {
-  return cellGrid.map((row) => reflowRow(row, widthMode));
+function reflowCellGrid(cellGrid: CellGrid, widthMode: WidthMode, gridWidth: number) {
+  return cellGrid.map((row) => reflowRow(row, widthMode, gridWidth));
 }
 
-function reflowRow(row: Cell[], widthMode: WidthMode) {
+function reflowRow(row: Cell[], widthMode: WidthMode, gridWidth: number) {
   const nextRow: Cell[] = [];
 
   for (let sourceX = 0; sourceX < row.length; sourceX += 1) {
@@ -99,7 +99,7 @@ function reflowRow(row: Cell[], widthMode: WidthMode) {
 
     const width = getCharWidth(cell.char, widthMode);
 
-    if (nextRow.length + width > GRID_WIDTH) {
+    if (nextRow.length + width > gridWidth) {
       break;
     }
 
@@ -122,14 +122,14 @@ function reflowRow(row: Cell[], widthMode: WidthMode) {
       sourceX += 1;
     }
 
-    if (nextRow.length >= GRID_WIDTH) {
+    if (nextRow.length >= gridWidth) {
       break;
     }
   }
 
-  while (nextRow.length < GRID_WIDTH) {
+  while (nextRow.length < gridWidth) {
     nextRow.push(createEmptyCell());
   }
 
-  return nextRow.slice(0, GRID_WIDTH);
+  return nextRow.slice(0, gridWidth);
 }
