@@ -77,6 +77,22 @@ pointerCanvas.addEventListener('click', (event) => {
   terminal.handlePointer(x, y);
 });
 
+pointerCanvas.addEventListener('mousedown', (event) => {
+  if (event.button === 0) {
+    terminal.setFastOutputActive(true);
+  }
+});
+
+window.addEventListener('mouseup', (event) => {
+  if (event.button === 0) {
+    terminal.setFastOutputActive(false);
+  }
+});
+
+window.addEventListener('blur', () => {
+  terminal.setFastOutputActive(false);
+});
+
 pointerCanvas.addEventListener('mousemove', (event) => {
   const { x, y } = getTerminalPoint(event);
   pointerCanvas.style.cursor = terminal.handlePointerMove(x, y) ? 'pointer' : '';

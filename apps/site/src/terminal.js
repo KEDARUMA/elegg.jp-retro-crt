@@ -383,6 +383,10 @@ class ImageBlockTask {
     this.step += 1;
     return this.step >= IMAGE_STEPS;
   }
+
+  finish(ctx) {
+    ctx.putImageData(this.target, this.x, this.y);
+  }
 }
 
 class GlyphTask {
@@ -419,6 +423,10 @@ class GlyphTask {
     this.step += 1;
     return this.step >= GLYPH_STEPS;
   }
+
+  finish(ctx) {
+    ctx.putImageData(this.target, this.x, this.y);
+  }
 }
 
 export class Terminal {
@@ -449,6 +457,7 @@ export class Terminal {
     this.currentVfsPath = '';
     this.testMode = testMode;
     this.skipAnimations = testMode;
+    this.fastOutputActive = false;
     this.activeGlyphTasks = [];
     this.waitingGlyphTasks = [];
     this.activeImageTasks = [];
@@ -611,6 +620,35 @@ export class Terminal {
     }
     await this.openLink(link);
     return true;
+  }
+
+  setFastOutputActive(active) {
+    if (this.fastOutputActive === active) {
+      return;
+    }
+    this.fastOutputActive = active;
+    if (active) {
+      this.finishOutputAnimations();
+    }
+  }
+
+  shouldSkipOutputAnimations() {
+    return this.skipAnimations || this.fastOutputActive;
+  }
+
+  finishOutputAnimations() {
+    for (const task of [
+      ...this.activeGlyphTasks,
+      ...this.waitingGlyphTasks,
+      ...this.activeImageTasks,
+      ...this.waitingImageTasks,
+    ]) {
+      task.finish(this.ctx);
+    }
+    this.activeGlyphTasks = [];
+    this.waitingGlyphTasks = [];
+    this.activeImageTasks = [];
+    this.waitingImageTasks = [];
   }
 
   handlePointerMove(x, y) {
@@ -1643,7 +1681,8 @@ export class Terminal {
       return;
     }
     let processed = 0;
-    const charLimit = this.skipAnimations ? Number.POSITIVE_INFINITY : TEXT_OUTPUT_CHARS_PER_FRAME;
+    const skipOutputAnimations = this.shouldSkipOutputAnimations();
+    const charLimit = skipOutputAnimations ? Number.POSITIVE_INFINITY : TEXT_OUTPUT_CHARS_PER_FRAME;
     while (this.outputQueue.length > 0 && processed < charLimit) {
       const item = this.outputQueue.shift();
       if (item.type === 'action') {
@@ -1703,7 +1742,11 @@ export class Terminal {
       }
       if (item.type === 'char') {
         const isBlank = isBlankChar(item.char);
-        if (!isBlank && this.activeGlyphTasks.length + this.waitingGlyphTasks.length >= MAX_GLYPH_TASKS) {
+        if (
+          !skipOutputAnimations &&
+          !isBlank &&
+          this.activeGlyphTasks.length + this.waitingGlyphTasks.length >= MAX_GLYPH_TASKS
+        ) {
           this.outputQueue.unshift(item);
           break;
         }
@@ -1953,7 +1996,7 @@ export class Terminal {
   }
 
   enqueueGlyphTask(task) {
-    if (this.skipAnimations) {
+    if (this.shouldSkipOutputAnimations()) {
       const imageData = makeGlyphTarget({
         ...task,
         width: isFullWidth(task.char) ? CELL_W * 2 : CELL_W,
@@ -2006,7 +2049,7 @@ export class Terminal {
       if (cellX >= 0 && cellX < this.cols) {
         this.cells[this.cursorY][cellX] = imageCell(block.target, block.link, block.x - cellX * CELL_W);
       }
-      if (this.skipAnimations) {
+      if (this.shouldSkipOutputAnimations()) {
         this.ctx.putImageData(block.target, block.x, destY);
         continue;
       }
