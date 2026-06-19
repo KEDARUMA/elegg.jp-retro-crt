@@ -78,6 +78,18 @@ input {
   opacity: 0.38;
 }
 
+.fps-counter {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 2147483647;
+  color: #ffffff;
+  font-family: monospace;
+  font-size: 20px;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .screen-wrap.is-test-mode {
   display: grid;
   place-items: center;

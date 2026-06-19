@@ -49,6 +49,31 @@ mds-browser /var/www/mds/test/form/form.mds
 
 仮想 FS 内のファイルを参照する場合は `vfs:` を指定します。外部画像は `http://` / `https://` を指定できます。
 
+## Include
+
+状態: 実装済み。
+
+```mds
+<include src="./parts/header.mds" />
+```
+
+別の MDS ファイルを記述位置へ展開します。
+
+- `src` は記述元 MDS ファイルがあるディレクトリからの相対パスで指定します。
+- include できるファイルは `/var/www/mds/` 配下の `.mds` ファイルだけです。
+- 絶対パスと `/var/www/mds/` 外を指す相対パスは使用できません。
+- include 先の MDS でも `<include>` を使用できます。
+- include の入れ子で循環参照が発生した場合は、該当位置へエラーを表示します。
+- ファイル不在、ディレクトリ指定、対象外パス、`.mds` 以外、`src` 不足、自己終了形式でないタグは、該当位置へ赤字のエラーを表示します。
+- バッククォートまたはチルダ 3 文字以上で囲んだコードブロック内の `<include>` は展開しません。
+- include した内容に含まれるリンクと画像の相対パスは、表示中の親 MDS ファイルを基準に解決します。
+
+確認用 MDS:
+
+```sh
+mds-browser /var/www/mds/test/include/include.mds
+```
+
 ## テスト起動
 
 Playwright などの自動確認では、URL パラメータでテスト対象 MDS を直接起動します。

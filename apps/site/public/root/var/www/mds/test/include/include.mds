@@ -1,0 +1,16 @@
+<clear><color="white">MDS INCLUDE TEST
+
+Parent before
+<include src="./parts/first.mds" />
+Parent after
+
+Code block:
+```mds
+<include src="./parts/not-expanded.mds" />
+```
+
+Missing file:
+<include src="./missing.mds" />
+
+Circular reference:
+<include src="./cycle-a.mds" />

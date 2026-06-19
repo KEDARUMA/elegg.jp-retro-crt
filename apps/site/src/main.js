@@ -4,6 +4,7 @@ import { CELL_H, CELL_W, Terminal } from './terminal.js';
 import { WebGlFramebufferCanvas } from './webgl-framebuffer-canvas.js';
 
 const crtCanvas = document.querySelector('#crtCanvas');
+const fpsCounter = document.querySelector('#fpsCounter');
 const screenWrap = document.querySelector('.screen-wrap');
 const TERMINAL_COLS = 80;
 const params = new URLSearchParams(window.location.search);
@@ -156,10 +157,16 @@ window.addEventListener('popstate', () => {
   }
 });
 
+let previousFrameTime = null;
+
 function frame(time) {
   terminal.render(time);
   lowCanvas.present();
   renderer?.render(time);
+  if (previousFrameTime !== null) {
+    fpsCounter.textContent = `FPS:${Math.round(1000 / (time - previousFrameTime))}`;
+  }
+  previousFrameTime = time;
   requestAnimationFrame(frame);
 }
 

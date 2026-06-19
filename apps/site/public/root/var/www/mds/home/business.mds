@@ -1,33 +1,19 @@
-<clear><color="#2793a7">
-╔════════════════════════════════════════════════════════════════╗
-║  ELEPHANT GEOGRAPHICO / BUSINESS                              ║
-╚════════════════════════════════════════════════════════════════╝
-<color>
-<a href="vfs:index.mds">HOME</a>  <a href="vfs:company.mds">会社概要</a>  <a href="vfs:news.mds">お知らせ</a>  <a href="vfs:contact.mds">お問い合わせ</a>
-
-<color="#ffffff"><bgcolor="#000000"> 事業内容 <color><bgcolor>
-
-提供サービスや制作領域を整理して掲載するページです。
-公開時は各項目の実績、対応範囲、相談導線を追加してください。
-
-<color="#7dd3fc">[ SERVICE 01 ] Web / App Development<color>
-  企画、設計、実装、運用改善までを扱う制作・開発領域。
-  フロントエンド、インタラクション、管理画面、プロトタイプなど。
-
-<color="#7dd3fc">[ SERVICE 02 ] Creative Tools<color>
-  ブラウザ上で動作する制作支援ツール、画像・文字表現ツール、
-  実験的な UI や編集体験の開発。
-
-<color="#7dd3fc">[ SERVICE 03 ] Digital Contents<color>
-  レトロ CRT、アスキーアート、WebGL 表現、サウンドや映像と
-  連動するコンテンツ制作。
-
-<color="#7dd3fc">[ WORKFLOW ]<color>
-  01. 相談
-  02. 要件整理
-  03. 試作
-  04. 実装
-  05. 公開・運用
-
-<a href="vfs:index.mds">← トップへ戻る</a>
-
+<clear>
+<color="#55ff55"><bgcolor="#000000">⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽
+<color><color="#3e3e3e"><bgcolor><bgcolor="#55ff55">  𓃰 𝙀𝙇𝙀𝙋𝙃𝘼𝙉𝙏 𝙂𝙀𝙊𝙂𝙍𝘼𝙁𝙄𝘾𝙊 ╱ 𝘽𝙐𝙎𝙄𝙉𝙀𝙎𝙎                                            
+<color><color="#55ff55"><bgcolor><bgcolor="#000000">͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞
+<color><bgcolor>  <color="#00d9ff"><bgcolor="#000000">⟪ 事業内容<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">⟫
+<color><bgcolor>                                                                 <color="#ffffff"><bgcolor="#000000"> 
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">スマートフォンアプリ、Webシステム、業務システムの開発を中心に、
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">設計・実装・運用まで一貫して対応しています。
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">また、AIやクラウド技術を活用したツール開発や技術検証にも
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">継続的に取り組んでいます。<color><bgcolor>                                          <color="#ffffff"><bgcolor="#000000"> 
+<color><bgcolor>  
+<color><bgcolor>  <color="#00d9ff"><bgcolor="#000000">⟪<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">実績紹介<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">⟫
+<color><bgcolor>
+<include src="./business/inc-fukkarubaito.mds" />
+<include src="./business/inc-openai-image-api-console.mds" />
+<include src="./business/inc-aa-maker.mds" />
+<include src="./business/inc-revlm.mds" />
+<color><bgcolor>  <a href="vfs:index.mds"><color="#ffffff"><bgcolor="#000000">👈<color><bgcolor> <color="#ffffff"><bgcolor="#000000">戻る</a>
+<bgcolor><color>

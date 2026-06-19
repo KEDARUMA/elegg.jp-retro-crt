@@ -1,0 +1,9 @@
+  <color="#fff06a"><bgcolor="#000000">❖OpenAI Image API Console
+
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">OpenAIの画像生成・編集APIをデスクトップから操作できるツールを開発。
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">Tauri / React / Viteで構築し、テキストからの生成、入力画像、
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">マスク編集、透過PNG出力、品質設定、ローカル履歴に対応。
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">macOS、Windows、Linux向けに公開しています。
+
+<img src="vfs:business/openai-image-api-console-ss.jpg" align="center" alt="OpenAI Image API Consoleのスクリーンショット"><a href="https://github.com/KEDARUMA/openai-image-api-console"><img src="vfs:business/openai-image-api-console-github.jpg" align="center" alt="GitHub"></a><a href="https://github.com/KEDARUMA/openai-image-api-console/releases/latest"><img src="vfs:business/openai-image-api-console-download.jpg" align="center" alt="最新版をダウンロード"></a>
+<color><bgcolor>         <color="#4a4a4a"><bgcolor="#000000">∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽

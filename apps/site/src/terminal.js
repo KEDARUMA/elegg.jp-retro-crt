@@ -20,6 +20,8 @@ const MAX_IMAGE_GLYPH_STARTS_PER_FRAME = 2;
 // 1フレームで処理するテキスト文字数。
 const TEXT_OUTPUT_CHARS_PER_FRAME = 1;
 const MAX_SCROLLBACK_ROWS = 256;
+const MDS_ROOT_PATH = '/var/www/mds';
+const GLYPH_CACHE_LIMIT = 4096;
 
 const PALETTE = [
   '#060806',
@@ -56,6 +58,7 @@ const COLOR_NAMES = {
 const DEFAULT_TEXT_STATE = { fg: 10, bg: 0, bold: false, inverse: false, underline: false, strike: false };
 const GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 const measuredCharWidths = new Map();
+const glyphTargetCache = new Map();
 let measureDomHost;
 let measureDomText = null;
 let measuredDomFont = '';
@@ -349,6 +352,21 @@ function resolveTextColor(value) {
 }
 
 function makeGlyphTarget({ char, width, fg, bg, bold, inverse, underline, strike }) {
+  const cacheKey = [
+    char,
+    width,
+    fg,
+    bg,
+    bold ? 1 : 0,
+    inverse ? 1 : 0,
+    underline ? 1 : 0,
+    strike ? 1 : 0,
+  ].join('\0');
+  const cached = glyphTargetCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const fgColor = hexToRgb(resolveTextColor(inverse ? bg : fg));
   const bgColor = hexToRgb(resolveTextColor(inverse ? fg : bg));
   const glyphCanvas = document.createElement('canvas');
@@ -371,7 +389,12 @@ function makeGlyphTarget({ char, width, fg, bg, bold, inverse, underline, strike
     glyphCtx.fillRect(0, Math.floor(CELL_H / 2), width, 1);
   }
 
-  return glyphCtx.getImageData(0, 0, width, CELL_H);
+  const imageData = glyphCtx.getImageData(0, 0, width, CELL_H);
+  if (glyphTargetCache.size >= GLYPH_CACHE_LIMIT) {
+    glyphTargetCache.clear();
+  }
+  glyphTargetCache.set(cacheKey, imageData);
+  return imageData;
 }
 
 function shouldPaintTextCell(cell) {
@@ -467,6 +490,9 @@ export class Terminal {
     this.cells = Array.from({ length: this.rows }, () => freshRow(this.cols));
     this.scrollbackRows = [];
     this.scrollbackOffset = 0;
+    this.viewportDirty = false;
+    this.viewportCanvas = document.createElement('canvas');
+    this.viewportCtx = this.viewportCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
     this.cursorX = 0;
     this.cursorY = 0;
     this.state = freshTextState();
@@ -516,7 +542,7 @@ export class Terminal {
     this.activeImageTasks = [];
     this.waitingImageTasks = [];
     this.waitingImageRows = [];
-    this.repaintViewport();
+    this.requestViewportRepaint();
   }
 
   resizeRows(rows, nextRows, nextCols) {
@@ -704,7 +730,7 @@ export class Terminal {
     }
     this.setHoverRange(null);
     this.scrollbackOffset = nextOffset;
-    this.repaintViewport();
+    this.requestViewportRepaint();
   }
 
   followOutput() {
@@ -713,7 +739,7 @@ export class Terminal {
     }
     this.setHoverRange(null);
     this.scrollbackOffset = 0;
-    this.repaintViewport();
+    this.requestViewportRepaint();
   }
 
   getLinkRange(row, col) {
@@ -1157,7 +1183,8 @@ export class Terminal {
     if (updateHistory) {
       this.pushMdsHistory(result.path);
     }
-    this.writeMds(`${result.node.content}\r\n`);
+    const content = this.expandMdsIncludes(result.node.content, result.path, [result.path]);
+    this.writeMds(`${content}\r\n`);
   }
 
   resolveMdsPath(path, basePath = '') {
@@ -1172,6 +1199,85 @@ export class Terminal {
     const normalized = this.normalizePath(path);
     const slash = normalized.lastIndexOf('/');
     return slash <= 0 ? '/' : normalized.slice(0, slash);
+  }
+
+  expandMdsIncludes(text, sourcePath, includeStack) {
+    const lines = String(text).match(/[^\r\n]*(?:\r\n|\r|\n|$)/g)?.filter(Boolean) || [];
+    let fence = null;
+    let output = '';
+
+    for (const line of lines) {
+      const content = line.replace(/(?:\r\n|\r|\n)$/, '');
+      const lineBreak = line.slice(content.length);
+      const fenceTag = content.match(/^[ \t]{0,3}(`{3,}|~{3,})(.*)$/);
+
+      if (fence) {
+        output += line;
+        if (
+          fenceTag &&
+          fenceTag[1][0] === fence.marker &&
+          fenceTag[1].length >= fence.length &&
+          fenceTag[2].trim() === ''
+        ) {
+          fence = null;
+        }
+        continue;
+      }
+
+      if (fenceTag) {
+        fence = { marker: fenceTag[1][0], length: fenceTag[1].length };
+        output += line;
+        continue;
+      }
+
+      output += this.expandMdsIncludeTags(content, sourcePath, includeStack) + lineBreak;
+    }
+
+    return output;
+  }
+
+  expandMdsIncludeTags(text, sourcePath, includeStack) {
+    return text.replace(/<include\b[^>\r\n]*>/gi, (source) => {
+      const body = source.slice('<include'.length, -1).trim();
+      if (!body.endsWith('/')) {
+        return this.formatMdsIncludeError('self-closing tag is required');
+      }
+
+      const attrs = this.parseMdsAttrs(body.slice(0, -1));
+      const src = String(attrs.src || '').trim();
+      if (!src) {
+        return this.formatMdsIncludeError('src is required');
+      }
+      if (src.startsWith('/')) {
+        return this.formatMdsIncludeError(`${src}: only relative paths are supported`);
+      }
+      if (!/\.mds$/i.test(src)) {
+        return this.formatMdsIncludeError(`${src}: only .mds is supported`);
+      }
+
+      const includePath = this.normalizePath(`${this.dirname(sourcePath)}/${src}`);
+      if (includePath !== MDS_ROOT_PATH && !includePath.startsWith(`${MDS_ROOT_PATH}/`)) {
+        return this.formatMdsIncludeError(`${src}: path is outside ${MDS_ROOT_PATH}`);
+      }
+
+      const result = this.getNode(includePath);
+      if (!result.node) {
+        return this.formatMdsIncludeError(`${src}: No such file or directory`);
+      }
+      if (result.node.type !== 'file') {
+        return this.formatMdsIncludeError(`${src}: Is a directory`);
+      }
+      if (includeStack.includes(result.path)) {
+        return this.formatMdsIncludeError(`${src}: circular reference`);
+      }
+
+      return this.expandMdsIncludes(result.node.content, result.path, [...includeStack, result.path]);
+    });
+  }
+
+  formatMdsIncludeError(message) {
+    const safeMessage = String(message).replaceAll('<', '‹').replaceAll('>', '›').replace(/[\r\n]/g, ' ');
+    return `<color="red">[include error: ${safeMessage}]<color>`;
   }
 
   pushMdsHistory(path) {
@@ -1633,6 +1739,7 @@ export class Terminal {
     this.hoverRange = null;
     this.imageActionPending = false;
     this.mdsBrowserActive = false;
+    this.viewportDirty = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
@@ -1659,6 +1766,7 @@ export class Terminal {
     this.activeLink = null;
     this.imageActionPending = false;
     this.hoverRange = null;
+    this.viewportDirty = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
@@ -1927,24 +2035,29 @@ export class Terminal {
   }
 
   repaintRange(range, hover) {
+    const rows = this.getVisibleRows();
     if (range.type === 'image') {
       for (const cell of range.cells) {
-        this.repaintCell(cell.x, cell.y, hover);
+        this.repaintCell(cell.x, cell.y, hover, rows);
       }
       return;
     }
     for (let x = range.start; x <= range.end; x += 1) {
-      this.repaintCell(x, range.row, hover);
+      this.repaintCell(x, range.row, hover, rows);
     }
   }
 
-  repaintCell(x, y, hover = false) {
-    const cell = this.getVisibleRows()[y]?.[x];
+  repaintCell(x, y, hover = false, rows = null) {
+    const cell = (rows || this.getVisibleRows())[y]?.[x];
     if (!cell || cell.wideTail) {
       return;
     }
+    this.paintCell(this.ctx, cell, x, y, hover);
+  }
+
+  paintCell(ctx, cell, x, y, hover = false) {
     if (cell.media === 'image-block') {
-      this.repaintImageCell(cell, x, y, hover);
+      this.repaintImageCell(cell, x, y, hover, ctx);
       return;
     }
     const char = cell.ch || ' ';
@@ -1959,23 +2072,35 @@ export class Terminal {
       underline: cell.underline,
       strike: cell.strike,
     });
-    this.ctx.putImageData(imageData, x * CELL_W, y * CELL_H);
+    ctx.putImageData(imageData, x * CELL_W, y * CELL_H);
   }
 
   getVisibleRows() {
-    const rows = [...this.scrollbackRows, ...this.cells];
-    const end = Math.max(this.rows, rows.length - this.scrollbackOffset);
+    const scrollbackLength = this.scrollbackRows.length;
+    const totalLength = scrollbackLength + this.cells.length;
+    const end = Math.max(this.rows, totalLength - this.scrollbackOffset);
     const start = Math.max(0, end - this.rows);
-    const visible = rows.slice(start, end);
+    const visible = [];
+    for (let index = start; index < end; index += 1) {
+      visible.push(index < scrollbackLength ? this.scrollbackRows[index] : this.cells[index - scrollbackLength]);
+    }
     while (visible.length < this.rows) {
       visible.unshift(freshRow(this.cols));
     }
     return visible;
   }
 
+  requestViewportRepaint() {
+    this.viewportDirty = true;
+  }
+
   repaintViewport() {
-    this.ctx.fillStyle = PALETTE[0];
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    if (this.viewportCanvas.width !== this.canvas.width || this.viewportCanvas.height !== this.canvas.height) {
+      this.viewportCanvas.width = this.canvas.width;
+      this.viewportCanvas.height = this.canvas.height;
+    }
+    this.viewportCtx.fillStyle = PALETTE[0];
+    this.viewportCtx.fillRect(0, 0, this.viewportCanvas.width, this.viewportCanvas.height);
     const rows = this.getVisibleRows();
     for (let y = 0; y < this.rows; y += 1) {
       for (let x = 0; x < this.cols; x += 1) {
@@ -1984,20 +2109,26 @@ export class Terminal {
           continue;
         }
         if (cell.media === 'image-block') {
-          this.repaintImageCell(cell, x, y, false);
+          this.repaintImageCell(cell, x, y, false, this.viewportCtx);
         } else if (shouldPaintTextCell(cell)) {
-          this.repaintCell(x, y, false);
+          this.paintCell(this.viewportCtx, cell, x, y, false);
         }
       }
     }
+    this.ctx.putImageData(
+      this.viewportCtx.getImageData(0, 0, this.viewportCanvas.width, this.viewportCanvas.height),
+      0,
+      0,
+    );
+    this.viewportDirty = false;
   }
 
-  repaintImageCell(cell, x, y, hover = false) {
+  repaintImageCell(cell, x, y, hover = false, ctx = this.ctx) {
     const destX = x * CELL_W + (cell.offsetX || 0);
     const destY = y * CELL_H;
-    this.ctx.fillStyle = PALETTE[0];
-    this.ctx.fillRect(destX, destY, cell.blockWidth, cell.blockHeight);
-    this.ctx.putImageData(hover ? invertImageData(cell.imageData) : cell.imageData, destX, destY);
+    ctx.fillStyle = PALETTE[0];
+    ctx.fillRect(destX, destY, cell.blockWidth, cell.blockHeight);
+    ctx.putImageData(hover ? invertImageData(cell.imageData) : cell.imageData, destX, destY);
   }
 
   newLine() {
@@ -2011,6 +2142,9 @@ export class Terminal {
 
   render(time) {
     this.processOutputQueue();
+    if (this.viewportDirty) {
+      this.repaintViewport();
+    }
     if (this.scrollbackOffset > 0) {
       return;
     }
@@ -2103,10 +2237,17 @@ export class Terminal {
   }
 
   pushScrollbackRow(row) {
+    const preserveViewport = this.scrollbackOffset > 0;
     this.scrollbackRows.push(row);
+    if (preserveViewport) {
+      this.scrollbackOffset += 1;
+    }
     if (this.scrollbackRows.length > MAX_SCROLLBACK_ROWS) {
       this.scrollbackRows.shift();
-      this.scrollbackOffset = Math.max(0, this.scrollbackOffset - 1);
+    }
+    this.scrollbackOffset = Math.max(0, Math.min(this.scrollbackRows.length, this.scrollbackOffset));
+    if (preserveViewport) {
+      this.requestViewportRepaint();
     }
   }
 
@@ -2114,6 +2255,11 @@ export class Terminal {
     this.pushScrollbackRow(this.cells.shift());
     this.cells.push(freshRow(this.cols));
     this.cursorY = this.rows - 1;
+    if (this.scrollbackOffset > 0) {
+      this.shiftOutputTasks();
+      this.requestViewportRepaint();
+      return;
+    }
     this.scrollFramebuffer();
   }
 
@@ -2125,6 +2271,10 @@ export class Terminal {
     this.ctx.drawImage(this.canvas, 0, CELL_H, this.canvas.width, this.canvas.height - CELL_H, 0, 0, this.canvas.width, this.canvas.height - CELL_H);
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, this.canvas.height - CELL_H, this.canvas.width, CELL_H);
+    this.shiftOutputTasks();
+  }
+
+  shiftOutputTasks() {
     for (const task of [...this.activeGlyphTasks, ...this.waitingGlyphTasks, ...this.activeImageTasks, ...this.waitingImageTasks]) {
       task.y -= CELL_H;
     }
