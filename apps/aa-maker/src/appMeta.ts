@@ -1,1 +1,1 @@
-export const AA_MAKER_VERSION = "0.0.7";
+export const AA_MAKER_VERSION = "0.0.8";
