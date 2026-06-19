@@ -1599,6 +1599,10 @@ export class Terminal {
       window.open(target, '_blank', 'noopener,noreferrer');
       return;
     }
+    if (/^mailto:/i.test(target)) {
+      window.location.href = target;
+      return;
+    }
     if (target.startsWith('vfs:')) {
       this.openVfsPath(target, { basePath: this.dirname(this.currentVfsPath || this.currentMdsPath), updateHistory: true });
       return;
