@@ -182,14 +182,53 @@ function easeOutBack(value) {
   return 1 + c3 * Math.pow(value - 1, 3) + c1 * Math.pow(value - 1, 2);
 }
 
+function fract(value) {
+  return value - Math.floor(value);
+}
+
+function noiseHash(value) {
+  return fract(Math.sin(value * 127.1) * 43758.5453123);
+}
+
+function smoothstep01(value) {
+  return value * value * (3 - 2 * value);
+}
+
+function noise1(value) {
+  const index = Math.floor(value);
+  const amount = smoothstep01(fract(value));
+  const a = noiseHash(index);
+  const b = noiseHash(index + 1);
+  return a + (b - a) * amount;
+}
+
+function fbm(value) {
+  return (
+    noise1(value * 0.08) * 0.5 +
+    noise1(value * 0.21) * 0.25 +
+    noise1(value * 0.67) * 0.15 +
+    noise1(value * 2.3) * 0.07 +
+    noise1(value * 8.0) * 0.03
+  );
+}
+
+function unstableWave(value) {
+  const noise = fbm(value);
+  const delta = Math.abs(fbm(value + 0.015) - noise) / 0.015;
+  return Math.min(1, noise * 0.55 + Math.pow(noise, 2.2) * 0.25 + Math.pow(delta, 1.4) * 0.2);
+}
+
 export class CrtRenderer {
   constructor(canvas, sourceCanvas) {
     this.canvas = canvas;
     this.sourceCanvas = sourceCanvas;
     this.settings = {
+      // 画面の湾曲量。高いほど端が大きく曲がる。
       curve: 0.42,
-      bleed: 0.55,
-      sync: 0.5,
+      // 色にじみ量。高いほどRGBの横ずれと周辺発光が強くなる。
+      bleed: 1.55,
+      // H-Sync系の横揺れぼ強度
+      sync: 1.0,
       // bloom対象にする明るさの基準値。高いほど明るい部分だけ光る。
       bloomThreshold: 0.18,
       // しきい値周辺のなだらかさ。低いほど光る/光らないがはっきり分かれる。
@@ -403,8 +442,11 @@ export class CrtRenderer {
     };
   }
 
+  // 次のbloom波が発生するまでの遅延時間を返す
   getNextBloomWaveDelayMs() {
-    return 12000 + Math.random() * 16000;
+    const shortest = 12000;
+    const range = 10000;
+    return shortest + Math.random() * range;
   }
 
   getBloomIntensity(timeMs) {
@@ -520,10 +562,15 @@ export class CrtRenderer {
   render(timeMs) {
     const gl = this.gl;
     const time = timeMs * 0.001;
-    if (Math.random() < 0.006 * this.settings.sync) {
-      this.kickSync(0.75);
+    // CRT全体の不安定度。同じ時刻なら同じ値になるため、FPSに依存しない。
+    const instability = unstableWave(time);
+    const syncWave = Math.pow(instability, 1.2);
+    const syncSpike = Math.pow(Math.max(0, instability - 0.34) * 3.0, 2.0);
+    const effectiveSync = this.settings.sync * (0.55 + syncWave * 3.2 + syncSpike * 5.0);
+    if (Math.random() < 0.006 * effectiveSync) {
+      this.kickSync(Math.min(1.35, 0.35 + syncWave * 0.85 + syncSpike * 1.1));
     }
-    if (Math.random() < CRT_VSYNC_DRIFT_RANDOM_CHANCE * this.settings.sync) {
+    if (Math.random() < CRT_VSYNC_DRIFT_RANDOM_CHANCE * effectiveSync) {
       this.kickVsyncDrift(CRT_VSYNC_DRIFT_RANDOM_AMOUNT);
     }
     this.burst *= 0.94;
@@ -544,7 +591,7 @@ export class CrtRenderer {
     gl.uniform1f(this.locations.time, time);
     gl.uniform1f(this.locations.curve, this.settings.curve);
     gl.uniform1f(this.locations.bleed, this.settings.bleed);
-    gl.uniform1f(this.locations.sync, this.settings.sync);
+    gl.uniform1f(this.locations.sync, effectiveSync);
     gl.uniform1f(this.locations.burst, this.burst);
     gl.uniform1f(this.locations.vsyncOffset, vsyncOffset);
     gl.uniform1f(this.locations.vsyncSnap, vsyncSnap);
