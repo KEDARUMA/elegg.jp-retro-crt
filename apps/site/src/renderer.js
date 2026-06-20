@@ -38,7 +38,7 @@ vec2 curveUv(vec2 uv) {
 }
 
 void main() {
-  vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
+  vec2 uv = v_uv;
   uv.y = fract(uv.y + u_vsyncOffset);
   uv.y = 0.5 + (uv.y - 0.5) * (1.0 + u_vsyncSnap * u_vsyncSnapStretch);
 
@@ -88,6 +88,63 @@ void main() {
 }
 `;
 
+const BLOOM_BRIGHT_FRAGMENT = `
+precision highp float;
+
+uniform sampler2D u_texture;
+uniform float u_threshold;
+uniform float u_softness;
+varying vec2 v_uv;
+
+float luminance(vec3 color) {
+  return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+  vec2 sourceUv = vec2(v_uv.x, 1.0 - v_uv.y);
+  vec3 color = texture2D(u_texture, sourceUv).rgb;
+  float brightness = luminance(color);
+  float glow = smoothstep(u_threshold - u_softness, u_threshold + u_softness, brightness);
+  gl_FragColor = vec4(color * glow, 1.0);
+}
+`;
+
+const BLOOM_BLUR_FRAGMENT = `
+precision highp float;
+
+uniform sampler2D u_texture;
+uniform vec2 u_texel;
+uniform vec2 u_direction;
+uniform float u_radius;
+varying vec2 v_uv;
+
+void main() {
+  vec2 stepUv = u_texel * u_direction * u_radius;
+  vec3 color = texture2D(u_texture, v_uv).rgb * 0.227027;
+  color += texture2D(u_texture, v_uv + stepUv * 1.384615).rgb * 0.316216;
+  color += texture2D(u_texture, v_uv - stepUv * 1.384615).rgb * 0.316216;
+  color += texture2D(u_texture, v_uv + stepUv * 3.230769).rgb * 0.070270;
+  color += texture2D(u_texture, v_uv - stepUv * 3.230769).rgb * 0.070270;
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+const BLOOM_COMPOSE_FRAGMENT = `
+precision highp float;
+
+uniform sampler2D u_source;
+uniform sampler2D u_bloom;
+uniform float u_intensity;
+varying vec2 v_uv;
+
+void main() {
+  vec2 sourceUv = vec2(v_uv.x, 1.0 - v_uv.y);
+  vec3 source = texture2D(u_source, sourceUv).rgb;
+  vec3 bloom = texture2D(u_bloom, v_uv).rgb;
+  gl_FragColor = vec4(min(source + bloom * u_intensity, vec3(1.0)), 1.0);
+}
+`;
+
 // trueにすると、CSSによるcanvas拡大時の補間を有効にする。
 export const CRT_CSS_IMAGE_ANTIALIAS = true;
 
@@ -133,11 +190,25 @@ export class CrtRenderer {
       curve: 0.42,
       bleed: 0.55,
       sync: 0.5,
+      // bloom対象にする明るさの基準値。高いほど明るい部分だけ光る。
+      bloomThreshold: 0.18,
+      // しきい値周辺のなだらかさ。低いほど光る/光らないがはっきり分かれる。
+      bloomSoftness: 0.22,
+      // bloomのにじみ幅。高いほど光が広がる。
+      bloomRadius: 1.75,
+      // blurの往復回数。高いほど広く滑らかに光るが負荷も増える。
+      bloomPasses: 3,
+      // bloom強度の通常値。ランダム波が弱い時はこの強さになる。
+      bloomBaseIntensity: 0.01,
+      // bloom強度の最大値。ランダム波が強い時もこの値を超えない。
+      bloomIntensity: 3.725,
     };
     this.burst = 0;
     this.vsyncDriftStartMs = 0;
     this.vsyncDriftAmount = 0;
     this.vsyncSnapStartMs = 0;
+    this.bloomWave = null;
+    this.nextBloomWaveMs = 0;
     this.uploadedSourceVersion = null;
     this.gl = canvas.getContext('webgl', {
       alpha: false,
@@ -155,7 +226,13 @@ export class CrtRenderer {
   init() {
     const gl = this.gl;
     const program = createProgram(gl, VERTEX, FRAGMENT);
+    const brightProgram = createProgram(gl, VERTEX, BLOOM_BRIGHT_FRAGMENT);
+    const blurProgram = createProgram(gl, VERTEX, BLOOM_BLUR_FRAGMENT);
+    const composeProgram = createProgram(gl, VERTEX, BLOOM_COMPOSE_FRAGMENT);
     this.program = program;
+    this.brightProgram = brightProgram;
+    this.blurProgram = blurProgram;
+    this.composeProgram = composeProgram;
     this.locations = {
       position: gl.getAttribLocation(program, 'a_position'),
       texture: gl.getUniformLocation(program, 'u_texture'),
@@ -171,18 +248,227 @@ export class CrtRenderer {
       vsyncSnapStretch: gl.getUniformLocation(program, 'u_vsyncSnapStretch'),
       vsyncSnapBrightness: gl.getUniformLocation(program, 'u_vsyncSnapBrightness'),
     };
+    this.brightLocations = {
+      position: gl.getAttribLocation(brightProgram, 'a_position'),
+      texture: gl.getUniformLocation(brightProgram, 'u_texture'),
+      threshold: gl.getUniformLocation(brightProgram, 'u_threshold'),
+      softness: gl.getUniformLocation(brightProgram, 'u_softness'),
+    };
+    this.blurLocations = {
+      position: gl.getAttribLocation(blurProgram, 'a_position'),
+      texture: gl.getUniformLocation(blurProgram, 'u_texture'),
+      texel: gl.getUniformLocation(blurProgram, 'u_texel'),
+      direction: gl.getUniformLocation(blurProgram, 'u_direction'),
+      radius: gl.getUniformLocation(blurProgram, 'u_radius'),
+    };
+    this.composeLocations = {
+      position: gl.getAttribLocation(composeProgram, 'a_position'),
+      source: gl.getUniformLocation(composeProgram, 'u_source'),
+      bloom: gl.getUniformLocation(composeProgram, 'u_bloom'),
+      intensity: gl.getUniformLocation(composeProgram, 'u_intensity'),
+    };
 
     this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
 
-    this.texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    const textureFilter = CRT_TEXTURE_ANTIALIAS ? gl.LINEAR : gl.NEAREST;
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, textureFilter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, textureFilter);
+    this.texture = this.createTexture(CRT_TEXTURE_ANTIALIAS ? gl.LINEAR : gl.NEAREST);
+    this.bloomTargets = null;
+  }
+
+  createTexture(filter) {
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return texture;
+  }
+
+  createRenderTarget(width, height) {
+    const gl = this.gl;
+    const texture = this.createTexture(gl.LINEAR);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    const framebuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error('Bloom framebuffer is incomplete');
+    }
+    return { texture, framebuffer, width, height };
+  }
+
+  deleteRenderTarget(target) {
+    if (!target) {
+      return;
+    }
+    const gl = this.gl;
+    gl.deleteFramebuffer(target.framebuffer);
+    gl.deleteTexture(target.texture);
+  }
+
+  ensureBloomTargets() {
+    const width = this.sourceCanvas.width;
+    const height = this.sourceCanvas.height;
+    if (this.bloomTargets?.width === width && this.bloomTargets?.height === height) {
+      return;
+    }
+
+    if (this.bloomTargets) {
+      this.deleteRenderTarget(this.bloomTargets.bright);
+      this.deleteRenderTarget(this.bloomTargets.blurA);
+      this.deleteRenderTarget(this.bloomTargets.blurB);
+      this.deleteRenderTarget(this.bloomTargets.composite);
+    }
+
+    this.bloomTargets = {
+      width,
+      height,
+      bright: this.createRenderTarget(width, height),
+      blurA: this.createRenderTarget(width, height),
+      blurB: this.createRenderTarget(width, height),
+      composite: this.createRenderTarget(width, height),
+    };
+  }
+
+  bindQuad(program, positionLocation) {
+    const gl = this.gl;
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+  }
+
+  uploadSourceTexture() {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    const sourceVersion = this.sourceCanvas.__framebufferVersion;
+    const sourceWidth = this.sourceCanvas.width;
+    const sourceHeight = this.sourceCanvas.height;
+    if (
+      sourceVersion === undefined ||
+      sourceVersion !== this.uploadedSourceVersion ||
+      sourceWidth !== this.uploadedSourceWidth ||
+      sourceHeight !== this.uploadedSourceHeight
+    ) {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.sourceCanvas);
+      this.uploadedSourceVersion = sourceVersion;
+      this.uploadedSourceWidth = sourceWidth;
+      this.uploadedSourceHeight = sourceHeight;
+    }
+  }
+
+  renderBrightPass(target) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    gl.viewport(0, 0, target.width, target.height);
+    this.bindQuad(this.brightProgram, this.brightLocations.position);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.uniform1i(this.brightLocations.texture, 0);
+    gl.uniform1f(this.brightLocations.threshold, this.settings.bloomThreshold);
+    gl.uniform1f(this.brightLocations.softness, this.settings.bloomSoftness);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  renderBlurPass(input, output, directionX, directionY, radius) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
+    gl.viewport(0, 0, output.width, output.height);
+    this.bindQuad(this.blurProgram, this.blurLocations.position);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, input.texture);
+    gl.uniform1i(this.blurLocations.texture, 0);
+    gl.uniform2f(this.blurLocations.texel, 1 / output.width, 1 / output.height);
+    gl.uniform2f(this.blurLocations.direction, directionX, directionY);
+    gl.uniform1f(this.blurLocations.radius, radius);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  createBloomWave(timeMs) {
+    const duration = 500 + Math.random() * 500;
+    return {
+      startMs: timeMs,
+      durationMs: duration,
+      amplitude: 0.18 + Math.random() * 0.82,
+      peak: 0.12 + Math.random() * 0.76,
+      riseSharpness: 0.45 + Math.random() * 3.2,
+      fallSharpness: 0.45 + Math.random() * 3.2,
+    };
+  }
+
+  getNextBloomWaveDelayMs() {
+    return 12000 + Math.random() * 16000;
+  }
+
+  getBloomIntensity(timeMs) {
+    if (this.bloomWave && timeMs - this.bloomWave.startMs >= this.bloomWave.durationMs) {
+      this.bloomWave = null;
+      this.nextBloomWaveMs = timeMs + this.getNextBloomWaveDelayMs();
+    }
+
+    if (!this.bloomWave && timeMs >= this.nextBloomWaveMs) {
+      this.bloomWave = this.createBloomWave(timeMs);
+    }
+
+    if (!this.bloomWave) {
+      return this.settings.bloomBaseIntensity;
+    }
+
+    const wave = this.bloomWave;
+    const progress = Math.min(1, Math.max(0, (timeMs - wave.startMs) / wave.durationMs));
+    const phase =
+      progress < wave.peak
+        ? Math.sin((progress / wave.peak) * Math.PI * 0.5)
+        : Math.sin(((1 - progress) / (1 - wave.peak)) * Math.PI * 0.5);
+    const sharpness = progress < wave.peak ? wave.riseSharpness : wave.fallSharpness;
+    const envelope = Math.pow(Math.max(0, phase), sharpness);
+    const base = this.settings.bloomBaseIntensity;
+    const max = this.settings.bloomIntensity;
+    return Math.min(max, base + (max - base) * wave.amplitude * envelope);
+  }
+
+  renderComposePass(bloomTarget, output, intensity) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
+    gl.viewport(0, 0, output.width, output.height);
+    this.bindQuad(this.composeProgram, this.composeLocations.position);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.uniform1i(this.composeLocations.source, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, bloomTarget.texture);
+    gl.uniform1i(this.composeLocations.bloom, 1);
+    gl.uniform1f(this.composeLocations.intensity, intensity);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  renderBloomTexture(timeMs) {
+    this.ensureBloomTargets();
+    const targets = this.bloomTargets;
+    this.renderBrightPass(targets.bright);
+
+    let read = targets.bright;
+    let write = targets.blurA;
+    const passes = Math.max(1, Math.floor(this.settings.bloomPasses));
+    for (let pass = 0; pass < passes; pass += 1) {
+      const radius = this.settings.bloomRadius + pass * 0.45;
+      this.renderBlurPass(read, write, 1, 0, radius);
+      read = write;
+      write = read === targets.blurA ? targets.blurB : targets.blurA;
+      this.renderBlurPass(read, write, 0, 1, radius);
+      read = write;
+      write = read === targets.blurA ? targets.blurB : targets.blurA;
+    }
+
+    this.renderComposePass(read, targets.composite, this.getBloomIntensity(timeMs));
+    return targets.composite.texture;
   }
 
   kickSync(amount) {
@@ -244,19 +530,14 @@ export class CrtRenderer {
     const vsyncOffset = this.getVsyncOffset(timeMs);
     const vsyncSnap = this.getVsyncSnap(timeMs);
 
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    gl.useProgram(this.program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    const sourceVersion = this.sourceCanvas.__framebufferVersion;
-    if (sourceVersion === undefined || sourceVersion !== this.uploadedSourceVersion) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.sourceCanvas);
-      this.uploadedSourceVersion = sourceVersion;
-    }
+    this.uploadSourceTexture();
+    const crtInputTexture = this.renderBloomTexture(timeMs);
 
-    gl.enableVertexAttribArray(this.locations.position);
-    gl.vertexAttribPointer(this.locations.position, 2, gl.FLOAT, false, 0, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    this.bindQuad(this.program, this.locations.position);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, crtInputTexture);
     gl.uniform1i(this.locations.texture, 0);
     gl.uniform2f(this.locations.texel, 1 / this.sourceCanvas.width, 1 / this.sourceCanvas.height);
     gl.uniform2f(this.locations.sourceSize, this.sourceCanvas.width, this.sourceCanvas.height);
