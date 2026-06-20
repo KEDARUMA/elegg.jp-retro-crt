@@ -204,18 +204,21 @@ function noise1(value) {
 
 function fbm(value) {
   return (
-    noise1(value * 0.08) * 0.5 +
-    noise1(value * 0.21) * 0.25 +
-    noise1(value * 0.67) * 0.15 +
-    noise1(value * 2.3) * 0.07 +
-    noise1(value * 8.0) * 0.03
+    noise1(value * 0.55) * 0.22 +
+    noise1(value * 1.15) * 0.24 +
+    noise1(value * 2.6) * 0.22 +
+    noise1(value * 5.4) * 0.16 +
+    noise1(value * 11.0) * 0.1 +
+    noise1(value * 23.0) * 0.06
   );
 }
 
 function unstableWave(value) {
-  const noise = fbm(value);
-  const delta = Math.abs(fbm(value + 0.015) - noise) / 0.015;
-  return Math.min(1, noise * 0.55 + Math.pow(noise, 2.2) * 0.25 + Math.pow(delta, 1.4) * 0.2);
+  const base = fbm(value);
+  const fast = fbm(value * 2.7 + 17.31);
+  const delta = Math.abs(fbm(value + 0.035) - base) / 0.035;
+  const edge = Math.min(1, Math.pow(delta * 0.22, 1.1));
+  return Math.min(1, Math.max(0, base * 0.5 + fast * 0.25 + edge * 0.25));
 }
 
 export class CrtRenderer {
@@ -436,9 +439,12 @@ export class CrtRenderer {
       startMs: timeMs,
       durationMs: duration,
       amplitude: 0.18 + Math.random() * 0.82,
-      peak: 0.12 + Math.random() * 0.76,
-      riseSharpness: 0.45 + Math.random() * 3.2,
-      fallSharpness: 0.45 + Math.random() * 3.2,
+      fractalOffset: Math.random() * 1000,
+      fractalRate: 4.0 + Math.random() * 10.0,
+      fractalDepth: 0.85 + Math.random() * 0.65,
+      fractalSharpness: 0.45 + Math.random() * 1.4,
+      fadeInRatio: 0.05 + Math.random() * 0.16,
+      fadeOutRatio: 0.08 + Math.random() * 0.22,
     };
   }
 
@@ -465,15 +471,16 @@ export class CrtRenderer {
 
     const wave = this.bloomWave;
     const progress = Math.min(1, Math.max(0, (timeMs - wave.startMs) / wave.durationMs));
-    const phase =
-      progress < wave.peak
-        ? Math.sin((progress / wave.peak) * Math.PI * 0.5)
-        : Math.sin(((1 - progress) / (1 - wave.peak)) * Math.PI * 0.5);
-    const sharpness = progress < wave.peak ? wave.riseSharpness : wave.fallSharpness;
-    const envelope = Math.pow(Math.max(0, phase), sharpness);
+    const elapsedSeconds = (timeMs - wave.startMs) * 0.001;
+    // 波形本体はfractalで作り、開始と終了だけ短くフェードする。
+    const fadeIn = smoothstep01(Math.min(1, progress / wave.fadeInRatio));
+    const fadeOut = smoothstep01(Math.min(1, (1 - progress) / wave.fadeOutRatio));
+    const gate = fadeIn * fadeOut;
+    const fractal = unstableWave(wave.fractalOffset + elapsedSeconds * wave.fractalRate);
+    const fractalEnvelope = Math.min(1, Math.pow(fractal, wave.fractalSharpness) * wave.fractalDepth);
     const base = this.settings.bloomBaseIntensity;
     const max = this.settings.bloomIntensity;
-    return Math.min(max, base + (max - base) * wave.amplitude * envelope);
+    return Math.min(max, base + (max - base) * Math.min(1, wave.amplitude * gate * fractalEnvelope));
   }
 
   renderComposePass(bloomTarget, output, intensity) {
