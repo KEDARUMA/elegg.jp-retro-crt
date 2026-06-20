@@ -1,0 +1,10 @@
+  <color="#fff06a"><bgcolor="#000000">❖OpenAI Image API Console
+
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">We developed a desktop tool for operating OpenAI image generation
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">and editing APIs. Built with Tauri / React / Vite, it supports
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">text-to-image generation, input images, mask editing, transparent
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">PNG output, quality settings, and local history.
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">It is available for macOS, Windows, and Linux.
+
+<img src="vfs:../business/openai-image-api-console-ss.jpg" align="center" alt="OpenAI Image API Console screenshot"><a href="https://github.com/KEDARUMA/openai-image-api-console"><img src="vfs:../business/openai-image-api-console-github.jpg" align="center" alt="GitHub"></a><a href="https://github.com/KEDARUMA/openai-image-api-console/releases/latest"><img src="vfs:../business/openai-image-api-console-download-en.jpg" align="center" alt="Download latest release"></a>
+<color><bgcolor>         <color="#4a4a4a"><bgcolor="#000000">∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽∽

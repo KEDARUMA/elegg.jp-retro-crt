@@ -1,0 +1,20 @@
+<clear>
+<color><bgcolor>                                                       <a href="vfs:../business.mds"><color="#ffffff"><bgcolor="#000000">🇯🇵 日本語<color><bgcolor></a>
+<color="#55ff55"><bgcolor="#000000">⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽
+<color><color="#3e3e3e"><bgcolor><bgcolor="#55ff55">  𓃰 𝙀𝙇𝙀𝙋𝙃𝘼𝙉𝙏 𝙂𝙀𝙊𝙂𝙍𝘼𝙁𝙄𝘾𝙊 ╱ 𝘽𝙐𝙎𝙄𝙉𝙀𝙎𝙎                                            
+<color><color="#55ff55"><bgcolor><bgcolor="#000000">͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞
+<color><bgcolor>  <color="#00d9ff"><bgcolor="#000000">⟪ Business<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">⟫
+<color><bgcolor>                                                                 <color="#ffffff"><bgcolor="#000000"> 
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">We develop smartphone apps, web systems, and business systems,
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">covering design, implementation, and operation end to end.
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">We also continue to build tools and run technical verification
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">using AI and cloud technologies.<color><bgcolor>                              <color="#ffffff"><bgcolor="#000000"> 
+<color><bgcolor>  
+<color><bgcolor>  <color="#00d9ff"><bgcolor="#000000">⟪<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">Works<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">⟫
+<color><bgcolor>
+<include src="./business/inc-fukkarubaito.mds" />
+<include src="./business/inc-openai-image-api-console.mds" />
+<include src="./business/inc-aa-maker.mds" />
+<include src="./business/inc-revlm.mds" />
+<color><bgcolor>  <a href="vfs:index.mds"><color="#ffffff"><bgcolor="#000000">👈<color><bgcolor> <color="#ffffff"><bgcolor="#000000">Back</a>
+<bgcolor><color>

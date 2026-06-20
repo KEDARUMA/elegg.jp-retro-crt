@@ -1,0 +1,12 @@
+<clear>
+<color><bgcolor>                                                       <a href="vfs:../news.mds"><color="#ffffff"><bgcolor="#000000">🇯🇵 日本語<color><bgcolor></a>
+<color="#55ff55"><bgcolor="#000000">⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽⎽
+<color><color="#3e3e3e"><bgcolor><bgcolor="#55ff55">  𓃰 𝙀𝙇𝙀𝙋𝙃𝘼𝙉𝙏 𝙂𝙀𝙊𝙂𝙍𝘼𝙁𝙄𝘾𝙊 ╱ 𝙉𝙀𝙒𝙎                                               
+<color><color="#55ff55"><bgcolor><bgcolor="#000000">͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞͞
+<color><bgcolor>  <color="#00d9ff"><bgcolor="#000000">⟪ News<color><bgcolor> <color="#00d9ff"><bgcolor="#000000">⟫
+<color><bgcolor>                                                                 <color="#ffffff"><bgcolor="#000000"> 
+<color><bgcolor>  <color="#ffffff"><bgcolor="#000000">Updates on new apps, tools, releases, and related work.
+<color><bgcolor>
+<include src="./news/inc-fukkarubaito-release.mds" />
+<color><bgcolor>  <a href="vfs:index.mds"><color="#ffffff"><bgcolor="#000000">👈<color><bgcolor> <color="#ffffff"><bgcolor="#000000">Back</a>
+<bgcolor><color>
