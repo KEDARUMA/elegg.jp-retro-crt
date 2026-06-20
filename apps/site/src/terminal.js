@@ -57,6 +57,8 @@ const COLOR_NAMES = {
 
 const DEFAULT_TEXT_STATE = { fg: 10, bg: 0, bold: false, inverse: false, underline: false, strike: false };
 const GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+// MS Gothic とフォールバックフォントで幅判定がずれる文字を補正する。
+const FORCED_HALF_WIDTH_CHARS = new Set(['⋱']);
 const measuredCharWidths = new Map();
 const glyphTargetCache = new Map();
 let measureDomHost;
@@ -231,6 +233,9 @@ function toCellWidth(charWidth, halfWidth, fullWidth) {
 
 function getWebCharWidth(char) {
   if (char === '') {
+    return 1;
+  }
+  if (FORCED_HALF_WIDTH_CHARS.has(char)) {
     return 1;
   }
 
