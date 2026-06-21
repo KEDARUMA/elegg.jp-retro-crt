@@ -1,5 +1,5 @@
 import './style.css';
-import { CRT_CSS_IMAGE_ANTIALIAS, DEFAULT_RETRO_TUBE_PARAMETERS, RetroTube } from './retro-tube.js';
+import { CRT_CSS_IMAGE_ANTIALIAS, RetroTube } from './retro-tube.js';
 import { CELL_H, CELL_W, Terminal } from './terminal.js';
 import { WebGlFramebufferCanvas } from './webgl-framebuffer-canvas.js';
 
@@ -7,17 +7,12 @@ const crtCanvas = document.querySelector('#crtCanvas');
 const fpsCounter = document.querySelector('#fpsCounter');
 const screenWrap = document.querySelector('.screen-wrap');
 const TERMINAL_COLS = 80;
-const NEON_DRIVE_RETRO_TUBE_PARAMETERS = {
-  ...DEFAULT_RETRO_TUBE_PARAMETERS,
-  burst: 0,
-  bloomIntensity: 0.35,
-  vsyncOffset: 0,
-  vsyncSnap: 0,
-};
 const params = new URLSearchParams(window.location.search);
 const testMode = params.get('test') === '1';
 const startupMdsPath = params.get('mds') || '';
 const startupVfsPath = params.get('vfs') || '';
+// release は terminal 固定。dev だけ boot=neon-drive を許可する。
+const bootRuntimeName = import.meta.env.PROD ? 'terminal' : (params.get('boot') || 'terminal');
 const mobileBrowserEnv = !testMode && isMobileBrowserEnv();
 const MOBILE_FAST_OUTPUT_LATCH_MS = 900;
 if (mobileBrowserEnv) {
@@ -70,14 +65,34 @@ class NeonDriveRuntime {
     }
   }
 
-  apply(retroTube) {
-    retroTube?.setParameters(NEON_DRIVE_RETRO_TUBE_PARAMETERS);
+  apply(retroTube, time) {
+    this.neonDrive.applyRetroTubeParameters(retroTube, time);
   }
 
   handleKey(event) {
     if (this.neonDrive.handleKey(event) === 'exit') {
       this.system.popRuntime(this);
     }
+  }
+
+  handleKeyUp(event) {
+    this.neonDrive.handleKeyUp(event);
+  }
+
+  handlePointerDown(x) {
+    this.neonDrive.handlePointerDown(x, lowCanvas.width);
+  }
+
+  handlePointerUp() {
+    this.neonDrive.handlePointerUp();
+  }
+
+  releaseInput() {
+    this.neonDrive.releaseInput();
+  }
+
+  exit() {
+    this.neonDrive.releaseInput();
   }
 
   handlePointer() {
@@ -457,17 +472,23 @@ pointerCanvas.addEventListener('click', (event) => {
 pointerCanvas.addEventListener('mousedown', (event) => {
   if (event.button === 0) {
     beginFastOutput();
+    const point = getRuntimePoint(event);
+    if (point) {
+      callActiveRuntime('handlePointerDown', point.x, point.y, event);
+    }
   }
 });
 
 window.addEventListener('mouseup', (event) => {
   if (event.button === 0) {
     endFastOutput();
+    callActiveRuntime('handlePointerUp', event);
   }
 });
 
 window.addEventListener('blur', () => {
   endFastOutput();
+  callActiveRuntime('releaseInput');
 });
 
 pointerCanvas.addEventListener('mousemove', (event) => {
@@ -504,6 +525,10 @@ window.addEventListener('keydown', (event) => {
   callActiveRuntime('handleKey', event);
 });
 
+window.addEventListener('keyup', (event) => {
+  callActiveRuntime('handleKeyUp', event);
+});
+
 window.addEventListener('paste', (event) => {
   const text = event.clipboardData?.getData('text/plain') || '';
   if (!text) {
@@ -514,9 +539,11 @@ window.addEventListener('paste', (event) => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    callActiveRuntime('kickRetroTubeVsyncDrift');
+  if (document.hidden) {
+    callActiveRuntime('releaseInput');
+    return;
   }
+  callActiveRuntime('kickRetroTubeVsyncDrift');
 });
 
 window.addEventListener('resize', () => {
@@ -528,7 +555,15 @@ window.addEventListener('resize', () => {
   callActiveRuntime('kickRetroTubeVsyncDrift');
 });
 
-terminal.boot();
+if (bootRuntimeName === 'neon-drive') {
+  try {
+    pushRuntime(await createNeonDriveRuntime());
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+void terminal.boot();
 
 window.addEventListener('popstate', () => {
   const nextParams = new URLSearchParams(window.location.search);
