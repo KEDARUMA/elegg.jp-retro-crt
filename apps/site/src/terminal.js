@@ -527,6 +527,7 @@ export class Terminal {
     this.imageActionPending = false;
     this.hoverRange = null;
     this.mdsBrowserActive = false;
+    this.neonDrive = null;
   }
 
   resize(cols, rows) {
@@ -599,7 +600,15 @@ export class Terminal {
 
   async handleKey(event) {
     if (event.ctrlKey && event.key.toLowerCase() === 'c') {
+      if (this.isNeonDriveActive()) {
+        this.exitNeonDrive();
+        return;
+      }
       this.exitMdsBrowser();
+      return;
+    }
+    if (this.isNeonDriveActive()) {
+      this.handleNeonDriveKey(event);
       return;
     }
     if (event.key === 'PageUp') {
@@ -640,7 +649,7 @@ export class Terminal {
   }
 
   async pasteText(text) {
-    if (this.mdsBrowserActive) {
+    if (this.mdsBrowserActive || this.isNeonDriveActive()) {
       return;
     }
     const normalized = text.replace(/\r\n?/g, '\n');
@@ -666,12 +675,15 @@ export class Terminal {
     }
     await this.runCommand(command);
     this.command = '';
-    if (!this.mdsBrowserActive) {
+    if (!this.mdsBrowserActive && !this.isNeonDriveActive()) {
       this.showPrompt();
     }
   }
 
   async handlePointer(x, y) {
+    if (this.isNeonDriveActive()) {
+      return false;
+    }
     const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL_W)));
     const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL_H)));
     const link = this.getVisibleRows()[row]?.[col]?.link;
@@ -712,6 +724,9 @@ export class Terminal {
   }
 
   handlePointerMove(x, y) {
+    if (this.isNeonDriveActive()) {
+      return false;
+    }
     const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL_W)));
     const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL_H)));
     const range = this.getLinkRange(row, col);
@@ -724,6 +739,9 @@ export class Terminal {
   }
 
   handleWheel(deltaY) {
+    if (this.isNeonDriveActive()) {
+      return;
+    }
     const lines = Math.max(1, Math.ceil(Math.abs(deltaY) / CELL_H));
     this.scrollBack(deltaY > 0 ? -lines : lines);
   }
@@ -886,6 +904,10 @@ export class Terminal {
     }
     if (name === 'clear' || name === 'cls') {
       this.clear();
+      return;
+    }
+    if (name === 'neon-drive') {
+      await this.startNeonDrive();
       return;
     }
     if (name === 'help') {
@@ -1364,6 +1386,62 @@ export class Terminal {
     this.showPrompt();
   }
 
+  isNeonDriveActive() {
+    return Boolean(this.neonDrive);
+  }
+
+  async startNeonDrive() {
+    this.clear();
+    try {
+      const { NeonDrive } = await import('./neon-drive.js');
+      this.neonDrive = new NeonDrive();
+      this.presentNeonDriveFrame(this.neonDrive.render(0, this.canvas.width, this.canvas.height));
+    } catch (error) {
+      this.neonDrive = null;
+      this.write(`neon-drive: ${error.message}\r\n`);
+    }
+  }
+
+  exitNeonDrive() {
+    if (!this.isNeonDriveActive()) {
+      return;
+    }
+    this.neonDrive = null;
+    this.command = '';
+    this.clear();
+    this.write('NEON DRIVE TERMINATED\r\n');
+    this.showPrompt();
+  }
+
+  handleNeonDriveKey(event) {
+    if (!this.isNeonDriveActive()) {
+      return;
+    }
+    if (this.neonDrive.handleKey(event) === 'exit') {
+      this.exitNeonDrive();
+    }
+  }
+
+  renderNeonDrive(time) {
+    if (!this.isNeonDriveActive()) {
+      return;
+    }
+    try {
+      this.presentNeonDriveFrame(this.neonDrive.render(time, this.canvas.width, this.canvas.height));
+    } catch (error) {
+      this.neonDrive = null;
+      this.clear();
+      this.write(`neon-drive: ${error.message}\r\n`);
+      this.showPrompt();
+    }
+  }
+
+  presentNeonDriveFrame(imageData) {
+    if (imageData) {
+      this.ctx.putImageData(imageData, 0, 0);
+    }
+  }
+
   writeMds(text) {
     let index = 0;
     while (index < text.length) {
@@ -1620,7 +1698,7 @@ export class Terminal {
       const command = target.slice('cmd:'.length).trim();
       this.write(`\r\n$ ${command}\r\n`);
       await this.runCommand(command);
-      if (!this.mdsBrowserActive) {
+      if (!this.mdsBrowserActive && !this.isNeonDriveActive()) {
         this.showPrompt();
       }
       return;
@@ -1748,6 +1826,7 @@ export class Terminal {
     this.hoverRange = null;
     this.imageActionPending = false;
     this.mdsBrowserActive = false;
+    this.neonDrive = null;
     this.viewportDirty = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -1775,6 +1854,7 @@ export class Terminal {
     this.activeLink = null;
     this.imageActionPending = false;
     this.hoverRange = null;
+    this.neonDrive = null;
     this.viewportDirty = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -2150,6 +2230,10 @@ export class Terminal {
   }
 
   render(time) {
+    if (this.isNeonDriveActive()) {
+      this.renderNeonDrive(time);
+      return;
+    }
     this.processOutputQueue();
     if (this.viewportDirty) {
       this.repaintViewport();
