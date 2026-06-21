@@ -1,5 +1,5 @@
 import './style.css';
-import { CRT_CSS_IMAGE_ANTIALIAS, CrtRenderer } from './renderer.js';
+import { CRT_CSS_IMAGE_ANTIALIAS, DEFAULT_RETRO_TUBE_PARAMETERS, RetroTube } from './retro-tube.js';
 import { CELL_H, CELL_W, Terminal } from './terminal.js';
 import { WebGlFramebufferCanvas } from './webgl-framebuffer-canvas.js';
 
@@ -7,6 +7,13 @@ const crtCanvas = document.querySelector('#crtCanvas');
 const fpsCounter = document.querySelector('#fpsCounter');
 const screenWrap = document.querySelector('.screen-wrap');
 const TERMINAL_COLS = 80;
+const NEON_DRIVE_RETRO_TUBE_PARAMETERS = {
+  ...DEFAULT_RETRO_TUBE_PARAMETERS,
+  burst: 0,
+  bloomIntensity: 0.35,
+  vsyncOffset: 0,
+  vsyncSnap: 0,
+};
 const params = new URLSearchParams(window.location.search);
 const testMode = params.get('test') === '1';
 const startupMdsPath = params.get('mds') || '';
@@ -30,14 +37,109 @@ if (testMode) {
   document.querySelector('.glass')?.setAttribute('hidden', '');
 }
 
-const terminal = new Terminal(lowCanvas, { cols: initialGrid.cols, rows: initialGrid.rows, startupMdsPath, startupVfsPath, testMode });
-const renderer = testMode ? null : new CrtRenderer(crtCanvas, lowCanvas.canvas);
+let activeRuntime = null;
+const runtimeStack = [];
+const runtimeSystem = {
+  pushRuntime,
+  popRuntime,
+  createNeonDriveRuntime,
+};
+const terminal = new Terminal(lowCanvas, { cols: initialGrid.cols, rows: initialGrid.rows, startupMdsPath, startupVfsPath, testMode, runtimeSystem });
+const retroTube = testMode ? null : new RetroTube(crtCanvas, lowCanvas.canvas);
 const pointerCanvas = testMode ? lowCanvas.canvas : crtCanvas;
+const terminalRuntime = terminal;
+activeRuntime = terminalRuntime;
 if (mobileBrowserEnv) {
   installMobileViewportSync();
   installMobileTouchScroll();
   installMobileOrientationLockTriggers();
   requestMobileOrientationLock();
+}
+
+class NeonDriveRuntime {
+  constructor(neonDrive, system) {
+    this.neonDrive = neonDrive;
+    this.system = system;
+    this.exitMessage = 'NEON DRIVE TERMINATED';
+  }
+
+  render(time) {
+    const imageData = this.neonDrive.render(time, lowCanvas.width, lowCanvas.height);
+    if (imageData) {
+      lowCanvas.putImageData(imageData, 0, 0);
+    }
+  }
+
+  apply(retroTube) {
+    retroTube?.setParameters(NEON_DRIVE_RETRO_TUBE_PARAMETERS);
+  }
+
+  handleKey(event) {
+    if (this.neonDrive.handleKey(event) === 'exit') {
+      this.system.popRuntime(this);
+    }
+  }
+
+  handlePointer() {
+    return false;
+  }
+
+  handlePointerMove() {
+    return false;
+  }
+
+  handlePointerLeave() {}
+
+  handleWheel() {}
+
+  pasteText() {}
+}
+
+async function createNeonDriveRuntime() {
+  const { NeonDrive } = await import('./neon-drive.js');
+  return new NeonDriveRuntime(new NeonDrive(), runtimeSystem);
+}
+
+function pushRuntime(runtime) {
+  if (!runtime) {
+    return;
+  }
+  const previousRuntime = activeRuntime || terminalRuntime;
+  previousRuntime?.suspend?.(runtime);
+  runtimeStack.push(previousRuntime);
+  activeRuntime = runtime;
+  pointerCanvas.style.cursor = '';
+  activeRuntime.enter?.(previousRuntime);
+}
+
+function popRuntime(runtime = activeRuntime) {
+  if (runtime && runtime !== activeRuntime) {
+    return;
+  }
+  const finishedRuntime = activeRuntime;
+  finishedRuntime?.exit?.();
+  activeRuntime = runtimeStack.pop() || terminalRuntime;
+  pointerCanvas.style.cursor = '';
+  activeRuntime.resume?.(finishedRuntime);
+}
+
+function forceTerminalRuntime(error) {
+  const message = error?.message || String(error || 'unknown runtime error');
+  runtimeStack.length = 0;
+  activeRuntime = terminalRuntime;
+  pointerCanvas.style.cursor = '';
+  terminalRuntime.resume({ exitMessage: `runtime: ${message}` });
+}
+
+function callActiveRuntime(methodName, ...args) {
+  try {
+    const result = activeRuntime?.[methodName]?.(...args);
+    result?.catch?.((error) => forceTerminalRuntime(error));
+    return result;
+  } catch (error) {
+    forceTerminalRuntime(error);
+    return null;
+  }
 }
 
 function getTerminalGrid() {
@@ -74,7 +176,7 @@ function syncTerminalGrid() {
   lowCanvas.resize(grid.width, grid.height);
   terminal.resize(grid.cols, grid.rows);
   if (!mobileBrowserEnv) {
-    renderer?.kickVsyncDrift();
+    callActiveRuntime('kickRetroTubeVsyncDrift');
   }
 }
 
@@ -181,7 +283,7 @@ function installMobileTouchScroll() {
         return;
       }
       beginFastOutput();
-      const point = getTerminalPoint(event.touches[0], { applyCurve: false });
+      const point = getRuntimePoint(event.touches[0], { applyCurve: false });
       mobileTouchScroll = point
         ? {
             lastY: point.y,
@@ -202,7 +304,7 @@ function installMobileTouchScroll() {
       if (event.cancelable) {
         event.preventDefault();
       }
-      const point = getTerminalPoint(event.touches[0], { applyCurve: false });
+      const point = getRuntimePoint(event.touches[0], { applyCurve: false });
       if (!point) {
         return;
       }
@@ -215,7 +317,7 @@ function installMobileTouchScroll() {
       if (lines <= 0) {
         return;
       }
-      terminal.scrollBack(mobileTouchScroll.pendingY > 0 ? lines : -lines);
+      callActiveRuntime('scrollBack', mobileTouchScroll.pendingY > 0 ? lines : -lines);
       mobileTouchScroll.pendingY -= Math.sign(mobileTouchScroll.pendingY) * lines * CELL_H;
     },
     { passive: false },
@@ -278,14 +380,14 @@ function getPointerUv(event) {
 }
 
 function applyCrtCurveToUv(uv) {
-  if (!renderer) {
+  if (!retroTube) {
     return uv;
   }
   // シェーダーと同じ湾曲式で、表示位置から元キャンバス座標へ合わせる。
   const centeredX = uv.x - 0.5;
   const centeredY = uv.y - 0.5;
   const distance = centeredX * centeredX + centeredY * centeredY;
-  const curve = 0.34 + renderer.settings.curve * 0.42;
+  const curve = 0.34 + retroTube.parameters.curve * 0.42;
   const scale = 1 + distance * curve;
   return {
     x: centeredX * scale + 0.5,
@@ -293,7 +395,7 @@ function applyCrtCurveToUv(uv) {
   };
 }
 
-function getTerminalPoint(event, { applyCurve = true } = {}) {
+function getRuntimePoint(event, { applyCurve = true } = {}) {
   const uv = applyCurve ? applyCrtCurveToUv(getPointerUv(event)) : getPointerUv(event);
   if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1) {
     return null;
@@ -306,16 +408,19 @@ function getTerminalPoint(event, { applyCurve = true } = {}) {
 
 let suppressClickUntil = 0;
 let fastOutputEndTimer = 0;
+let fastOutputRuntime = null;
 
 function beginFastOutput() {
   if (fastOutputEndTimer) {
     clearTimeout(fastOutputEndTimer);
     fastOutputEndTimer = 0;
   }
-  terminal.setFastOutputActive(true);
+  fastOutputRuntime = activeRuntime;
+  fastOutputRuntime?.setFastOutputActive?.(true);
 }
 
 function endFastOutput({ latchMs = 0 } = {}) {
+  const targetRuntime = fastOutputRuntime;
   if (fastOutputEndTimer) {
     clearTimeout(fastOutputEndTimer);
     fastOutputEndTimer = 0;
@@ -323,11 +428,17 @@ function endFastOutput({ latchMs = 0 } = {}) {
   if (latchMs > 0) {
     fastOutputEndTimer = window.setTimeout(() => {
       fastOutputEndTimer = 0;
-      terminal.setFastOutputActive(false);
+      targetRuntime?.setFastOutputActive?.(false);
+      if (fastOutputRuntime === targetRuntime) {
+        fastOutputRuntime = null;
+      }
     }, latchMs);
     return;
   }
-  terminal.setFastOutputActive(false);
+  targetRuntime?.setFastOutputActive?.(false);
+  if (fastOutputRuntime === targetRuntime) {
+    fastOutputRuntime = null;
+  }
 }
 
 pointerCanvas.addEventListener('click', (event) => {
@@ -335,12 +446,12 @@ pointerCanvas.addEventListener('click', (event) => {
     event.preventDefault();
     return;
   }
-  const point = getTerminalPoint(event);
+  const point = getRuntimePoint(event);
   if (!point) {
     return;
   }
   const { x, y } = point;
-  terminal.handlePointer(x, y);
+  callActiveRuntime('handlePointer', x, y, event);
 });
 
 pointerCanvas.addEventListener('mousedown', (event) => {
@@ -360,37 +471,37 @@ window.addEventListener('blur', () => {
 });
 
 pointerCanvas.addEventListener('mousemove', (event) => {
-  const point = getTerminalPoint(event);
+  const point = getRuntimePoint(event);
   if (!point) {
-    terminal.handlePointerLeave();
+    callActiveRuntime('handlePointerLeave', event);
     pointerCanvas.style.cursor = '';
     return;
   }
   const { x, y } = point;
-  pointerCanvas.style.cursor = terminal.handlePointerMove(x, y) ? 'pointer' : '';
+  pointerCanvas.style.cursor = callActiveRuntime('handlePointerMove', x, y, event) ? 'pointer' : '';
 });
 
 pointerCanvas.addEventListener('mouseleave', () => {
-  terminal.handlePointerLeave();
+  callActiveRuntime('handlePointerLeave');
   pointerCanvas.style.cursor = '';
 });
 
 pointerCanvas.addEventListener('wheel', (event) => {
   event.preventDefault();
-  terminal.handleWheel(event.deltaY);
+  callActiveRuntime('handleWheel', event.deltaY, event);
 });
 
 window.addEventListener('keydown', (event) => {
   if (event.ctrlKey && event.key.toLowerCase() === 'c') {
     event.preventDefault();
-    terminal.handleKey(event);
+    callActiveRuntime('handleKey', event);
     return;
   }
   if (event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
   event.preventDefault();
-  terminal.handleKey(event);
+  callActiveRuntime('handleKey', event);
 });
 
 window.addEventListener('paste', (event) => {
@@ -399,12 +510,12 @@ window.addEventListener('paste', (event) => {
     return;
   }
   event.preventDefault();
-  terminal.pasteText(text);
+  callActiveRuntime('pasteText', text);
 });
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    renderer?.kickVsyncDrift();
+    callActiveRuntime('kickRetroTubeVsyncDrift');
   }
 });
 
@@ -414,7 +525,7 @@ window.addEventListener('resize', () => {
     return;
   }
   syncTerminalGrid();
-  renderer?.kickVsyncDrift();
+  callActiveRuntime('kickRetroTubeVsyncDrift');
 });
 
 terminal.boot();
@@ -434,10 +545,29 @@ window.addEventListener('popstate', () => {
 
 let previousFrameTime = null;
 
+function renderActiveRuntime(time) {
+  try {
+    activeRuntime.render(time);
+  } catch (error) {
+    forceTerminalRuntime(error);
+    terminalRuntime.render(time);
+  }
+}
+
+function applyActiveRuntime(time) {
+  try {
+    activeRuntime.apply?.(retroTube, time);
+  } catch (error) {
+    forceTerminalRuntime(error);
+    terminalRuntime.apply?.(retroTube, time);
+  }
+}
+
 function frame(time) {
-  terminal.render(time);
+  renderActiveRuntime(time);
   lowCanvas.present();
-  renderer?.render(time);
+  applyActiveRuntime(time);
+  retroTube?.render(time);
   if (previousFrameTime !== null) {
     fpsCounter.textContent = `FPS:${Math.round(1000 / (time - previousFrameTime))}`;
   }

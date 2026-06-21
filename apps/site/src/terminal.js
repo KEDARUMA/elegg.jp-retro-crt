@@ -1,3 +1,5 @@
+import { DEFAULT_RETRO_TUBE_PARAMETERS } from './retro-tube.js';
+
 const DEFAULT_COLS = 64;
 const DEFAULT_ROWS = 16;
 export const CELL_W = 8;
@@ -22,6 +24,16 @@ const TEXT_OUTPUT_CHARS_PER_FRAME = 1;
 const MAX_SCROLLBACK_ROWS = 256;
 const MDS_ROOT_PATH = '/var/www/mds';
 const GLYPH_CACHE_LIMIT = 4096;
+const RETRO_TUBE_BLOOM_BASE_INTENSITY = DEFAULT_RETRO_TUBE_PARAMETERS.bloomIntensity;
+const RETRO_TUBE_BLOOM_MAX_INTENSITY = 3.725;
+const RETRO_TUBE_VSYNC_DRIFT_DURATION_MS = 1000;
+const RETRO_TUBE_VSYNC_DRIFT_START_OFFSET = 0.98;
+const RETRO_TUBE_VSYNC_DRIFT_RANDOM_CHANCE = 0.0009;
+const RETRO_TUBE_VSYNC_DRIFT_RANDOM_AMOUNT = 0.72;
+const RETRO_TUBE_VSYNC_DRIFT_TRIGGER_AMOUNT = 1.0;
+const RETRO_TUBE_VSYNC_DRIFT_OVERSHOOT = 1.75;
+const RETRO_TUBE_VSYNC_DRIFT_SNAP_PROGRESS = 0.86;
+const RETRO_TUBE_VSYNC_SNAP_FLASH_DURATION_MS = 120;
 
 const PALETTE = [
   '#060806',
@@ -66,6 +78,51 @@ let measureDomText = null;
 let measuredDomFont = '';
 let measuredDomHalfWidth = null;
 let measuredDomFullWidth = null;
+
+function easeOutBack(value) {
+  const c1 = RETRO_TUBE_VSYNC_DRIFT_OVERSHOOT;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(value - 1, 3) + c1 * Math.pow(value - 1, 2);
+}
+
+function fract(value) {
+  return value - Math.floor(value);
+}
+
+function noiseHash(value) {
+  return fract(Math.sin(value * 127.1) * 43758.5453123);
+}
+
+function smoothstep01(value) {
+  return value * value * (3 - 2 * value);
+}
+
+function noise1(value) {
+  const index = Math.floor(value);
+  const amount = smoothstep01(fract(value));
+  const a = noiseHash(index);
+  const b = noiseHash(index + 1);
+  return a + (b - a) * amount;
+}
+
+function fbm(value) {
+  return (
+    noise1(value * 0.55) * 0.22 +
+    noise1(value * 1.15) * 0.24 +
+    noise1(value * 2.6) * 0.22 +
+    noise1(value * 5.4) * 0.16 +
+    noise1(value * 11.0) * 0.1 +
+    noise1(value * 23.0) * 0.06
+  );
+}
+
+function unstableWave(value) {
+  const base = fbm(value);
+  const fast = fbm(value * 2.7 + 17.31);
+  const delta = Math.abs(fbm(value + 0.035) - base) / 0.035;
+  const edge = Math.min(1, Math.pow(delta * 0.22, 1.1));
+  return Math.min(1, Math.max(0, base * 0.5 + fast * 0.25 + edge * 0.25));
+}
 
 function freshTextState() {
   return { ...DEFAULT_TEXT_STATE };
@@ -487,7 +544,10 @@ class GlyphTask {
 }
 
 export class Terminal {
-  constructor(canvas, { cols = DEFAULT_COLS, rows = DEFAULT_ROWS, startupMdsPath = '', startupVfsPath = '', testMode = false } = {}) {
+  constructor(
+    canvas,
+    { cols = DEFAULT_COLS, rows = DEFAULT_ROWS, startupMdsPath = '', startupVfsPath = '', testMode = false, runtimeSystem = null } = {},
+  ) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.cols = cols;
@@ -527,7 +587,14 @@ export class Terminal {
     this.imageActionPending = false;
     this.hoverRange = null;
     this.mdsBrowserActive = false;
-    this.neonDrive = null;
+    this.runtimeSystem = runtimeSystem;
+    this.runtimeSuspended = false;
+    this.retroTubeBurst = 0;
+    this.retroTubeVsyncDriftStartMs = 0;
+    this.retroTubeVsyncDriftAmount = 0;
+    this.retroTubeVsyncSnapStartMs = 0;
+    this.retroTubeBloomWave = null;
+    this.nextRetroTubeBloomWaveMs = 0;
   }
 
   resize(cols, rows) {
@@ -571,6 +638,155 @@ export class Terminal {
     return resized;
   }
 
+  setRuntimeSystem(runtimeSystem) {
+    this.runtimeSystem = runtimeSystem;
+  }
+
+  suspend() {
+    this.runtimeSuspended = true;
+    this.setHoverRange(null);
+    this.setFastOutputActive(false);
+  }
+
+  resume(finishedRuntime = null) {
+    this.runtimeSuspended = false;
+    this.command = '';
+    this.clear();
+    if (finishedRuntime?.exitMessage) {
+      this.write(`${finishedRuntime.exitMessage}\r\n`);
+    }
+    this.showPrompt();
+  }
+
+  apply(retroTube, timeMs) {
+    this.applyRetroTubeParameters(retroTube, timeMs);
+  }
+
+  applyRetroTubeParameters(retroTube, timeMs) {
+    retroTube?.setParameters(this.getRetroTubeParameters(timeMs));
+  }
+
+  getRetroTubeParameters(timeMs) {
+    const time = timeMs * 0.001;
+    // 通常terminal用のダメージ振幅。retro-tube本体には波形生成を持たせない。
+    const instability = unstableWave(time);
+    const syncWave = Math.pow(instability, 1.2);
+    const syncSpike = Math.pow(Math.max(0, instability - 0.34) * 3.0, 2.0);
+    const sync = DEFAULT_RETRO_TUBE_PARAMETERS.sync * (0.55 + syncWave * 3.2 + syncSpike * 5.0);
+    if (Math.random() < 0.006 * sync) {
+      this.kickRetroTubeSync(Math.min(1.35, 0.35 + syncWave * 0.85 + syncSpike * 1.1));
+    }
+    if (Math.random() < RETRO_TUBE_VSYNC_DRIFT_RANDOM_CHANCE * sync) {
+      this.kickRetroTubeVsyncDrift(RETRO_TUBE_VSYNC_DRIFT_RANDOM_AMOUNT);
+    }
+
+    this.retroTubeBurst *= 0.94;
+    return {
+      ...DEFAULT_RETRO_TUBE_PARAMETERS,
+      sync,
+      burst: this.retroTubeBurst,
+      bloomIntensity: this.getRetroTubeBloomIntensity(timeMs),
+      vsyncOffset: this.getRetroTubeVsyncOffset(timeMs),
+      vsyncSnap: this.getRetroTubeVsyncSnap(timeMs),
+    };
+  }
+
+  kickRetroTubeSync(amount) {
+    this.retroTubeBurst = Math.max(this.retroTubeBurst, amount);
+  }
+
+  kickRetroTubeVsyncDrift(amount = RETRO_TUBE_VSYNC_DRIFT_TRIGGER_AMOUNT) {
+    this.retroTubeVsyncDriftStartMs = performance.now();
+    this.retroTubeVsyncDriftAmount = Math.max(this.retroTubeVsyncDriftAmount, amount);
+    this.kickRetroTubeSync(0.9);
+  }
+
+  kickRetroTubeVsyncSnap() {
+    this.retroTubeVsyncSnapStartMs = performance.now();
+  }
+
+  createRetroTubeBloomWave(timeMs) {
+    const duration = 500 + Math.random() * 500;
+    return {
+      startMs: timeMs,
+      durationMs: duration,
+      amplitude: 0.18 + Math.random() * 0.82,
+      fractalOffset: Math.random() * 1000,
+      fractalRate: 4.0 + Math.random() * 10.0,
+      fractalDepth: 0.85 + Math.random() * 0.65,
+      fractalSharpness: 0.45 + Math.random() * 1.4,
+      fadeInRatio: 0.05 + Math.random() * 0.16,
+      fadeOutRatio: 0.08 + Math.random() * 0.22,
+    };
+  }
+
+  getNextRetroTubeBloomWaveDelayMs() {
+    const shortest = 12000;
+    const range = 10000;
+    return shortest + Math.random() * range;
+  }
+
+  getRetroTubeBloomIntensity(timeMs) {
+    if (this.retroTubeBloomWave && timeMs - this.retroTubeBloomWave.startMs >= this.retroTubeBloomWave.durationMs) {
+      this.retroTubeBloomWave = null;
+      this.nextRetroTubeBloomWaveMs = timeMs + this.getNextRetroTubeBloomWaveDelayMs();
+    }
+
+    if (!this.retroTubeBloomWave && timeMs >= this.nextRetroTubeBloomWaveMs) {
+      this.retroTubeBloomWave = this.createRetroTubeBloomWave(timeMs);
+    }
+
+    if (!this.retroTubeBloomWave) {
+      return RETRO_TUBE_BLOOM_BASE_INTENSITY;
+    }
+
+    const wave = this.retroTubeBloomWave;
+    const progress = Math.min(1, Math.max(0, (timeMs - wave.startMs) / wave.durationMs));
+    const elapsedSeconds = (timeMs - wave.startMs) * 0.001;
+    const fadeIn = smoothstep01(Math.min(1, progress / wave.fadeInRatio));
+    const fadeOut = smoothstep01(Math.min(1, (1 - progress) / wave.fadeOutRatio));
+    const gate = fadeIn * fadeOut;
+    const fractal = unstableWave(wave.fractalOffset + elapsedSeconds * wave.fractalRate);
+    const fractalEnvelope = Math.min(1, Math.pow(fractal, wave.fractalSharpness) * wave.fractalDepth);
+    return Math.min(
+      RETRO_TUBE_BLOOM_MAX_INTENSITY,
+      RETRO_TUBE_BLOOM_BASE_INTENSITY +
+        (RETRO_TUBE_BLOOM_MAX_INTENSITY - RETRO_TUBE_BLOOM_BASE_INTENSITY) * Math.min(1, wave.amplitude * gate * fractalEnvelope),
+    );
+  }
+
+  getRetroTubeVsyncOffset(timeMs) {
+    if (this.retroTubeVsyncDriftAmount <= 0) {
+      return 0;
+    }
+    const elapsed = timeMs - this.retroTubeVsyncDriftStartMs;
+    const progress = Math.min(1, Math.max(0, elapsed / RETRO_TUBE_VSYNC_DRIFT_DURATION_MS));
+    if (progress >= RETRO_TUBE_VSYNC_DRIFT_SNAP_PROGRESS) {
+      this.retroTubeVsyncDriftAmount = 0;
+      this.kickRetroTubeVsyncSnap();
+      return 0;
+    }
+    const offset = RETRO_TUBE_VSYNC_DRIFT_START_OFFSET * this.retroTubeVsyncDriftAmount * (1 - easeOutBack(progress));
+    if (progress >= 1) {
+      this.retroTubeVsyncDriftAmount = 0;
+      return 0;
+    }
+    return offset;
+  }
+
+  getRetroTubeVsyncSnap(timeMs) {
+    if (this.retroTubeVsyncSnapStartMs <= 0) {
+      return 0;
+    }
+    const elapsed = timeMs - this.retroTubeVsyncSnapStartMs;
+    const progress = Math.min(1, Math.max(0, elapsed / RETRO_TUBE_VSYNC_SNAP_FLASH_DURATION_MS));
+    if (progress >= 1) {
+      this.retroTubeVsyncSnapStartMs = 0;
+      return 0;
+    }
+    return 1 - progress;
+  }
+
   async boot() {
     this.clear();
     this.write('\x1b[92mIBM-PC COMPATIBLE CRT BIOS v0.86\x1b[0m\r\n');
@@ -593,22 +809,14 @@ export class Terminal {
     } catch (error) {
       this.write(`\x1b[91mROOTFS ERROR: ${error.message}\x1b[0m\r\n\r\n`);
     }
-    if (!this.mdsBrowserActive) {
+    if (!this.mdsBrowserActive && !this.runtimeSuspended) {
       this.showPrompt();
     }
   }
 
   async handleKey(event) {
     if (event.ctrlKey && event.key.toLowerCase() === 'c') {
-      if (this.isNeonDriveActive()) {
-        this.exitNeonDrive();
-        return;
-      }
       this.exitMdsBrowser();
-      return;
-    }
-    if (this.isNeonDriveActive()) {
-      this.handleNeonDriveKey(event);
       return;
     }
     if (event.key === 'PageUp') {
@@ -649,7 +857,7 @@ export class Terminal {
   }
 
   async pasteText(text) {
-    if (this.mdsBrowserActive || this.isNeonDriveActive()) {
+    if (this.mdsBrowserActive) {
       return;
     }
     const normalized = text.replace(/\r\n?/g, '\n');
@@ -675,15 +883,12 @@ export class Terminal {
     }
     await this.runCommand(command);
     this.command = '';
-    if (!this.mdsBrowserActive && !this.isNeonDriveActive()) {
+    if (!this.mdsBrowserActive && !this.runtimeSuspended) {
       this.showPrompt();
     }
   }
 
   async handlePointer(x, y) {
-    if (this.isNeonDriveActive()) {
-      return false;
-    }
     const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL_W)));
     const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL_H)));
     const link = this.getVisibleRows()[row]?.[col]?.link;
@@ -724,9 +929,6 @@ export class Terminal {
   }
 
   handlePointerMove(x, y) {
-    if (this.isNeonDriveActive()) {
-      return false;
-    }
     const col = Math.max(0, Math.min(this.cols - 1, Math.floor(x / CELL_W)));
     const row = Math.max(0, Math.min(this.rows - 1, Math.floor(y / CELL_H)));
     const range = this.getLinkRange(row, col);
@@ -739,9 +941,6 @@ export class Terminal {
   }
 
   handleWheel(deltaY) {
-    if (this.isNeonDriveActive()) {
-      return;
-    }
     const lines = Math.max(1, Math.ceil(Math.abs(deltaY) / CELL_H));
     this.scrollBack(deltaY > 0 ? -lines : lines);
   }
@@ -1386,59 +1585,15 @@ export class Terminal {
     this.showPrompt();
   }
 
-  isNeonDriveActive() {
-    return Boolean(this.neonDrive);
-  }
-
   async startNeonDrive() {
     this.clear();
     try {
-      const { NeonDrive } = await import('./neon-drive.js');
-      this.neonDrive = new NeonDrive();
-      this.presentNeonDriveFrame(this.neonDrive.render(0, this.canvas.width, this.canvas.height));
+      if (!this.runtimeSystem?.pushRuntime || !this.runtimeSystem?.createNeonDriveRuntime) {
+        throw new Error('runtime system is not available');
+      }
+      this.runtimeSystem.pushRuntime(await this.runtimeSystem.createNeonDriveRuntime());
     } catch (error) {
-      this.neonDrive = null;
       this.write(`neon-drive: ${error.message}\r\n`);
-    }
-  }
-
-  exitNeonDrive() {
-    if (!this.isNeonDriveActive()) {
-      return;
-    }
-    this.neonDrive = null;
-    this.command = '';
-    this.clear();
-    this.write('NEON DRIVE TERMINATED\r\n');
-    this.showPrompt();
-  }
-
-  handleNeonDriveKey(event) {
-    if (!this.isNeonDriveActive()) {
-      return;
-    }
-    if (this.neonDrive.handleKey(event) === 'exit') {
-      this.exitNeonDrive();
-    }
-  }
-
-  renderNeonDrive(time) {
-    if (!this.isNeonDriveActive()) {
-      return;
-    }
-    try {
-      this.presentNeonDriveFrame(this.neonDrive.render(time, this.canvas.width, this.canvas.height));
-    } catch (error) {
-      this.neonDrive = null;
-      this.clear();
-      this.write(`neon-drive: ${error.message}\r\n`);
-      this.showPrompt();
-    }
-  }
-
-  presentNeonDriveFrame(imageData) {
-    if (imageData) {
-      this.ctx.putImageData(imageData, 0, 0);
     }
   }
 
@@ -1698,7 +1853,7 @@ export class Terminal {
       const command = target.slice('cmd:'.length).trim();
       this.write(`\r\n$ ${command}\r\n`);
       await this.runCommand(command);
-      if (!this.mdsBrowserActive && !this.isNeonDriveActive()) {
+      if (!this.mdsBrowserActive && !this.runtimeSuspended) {
         this.showPrompt();
       }
       return;
@@ -1826,7 +1981,6 @@ export class Terminal {
     this.hoverRange = null;
     this.imageActionPending = false;
     this.mdsBrowserActive = false;
-    this.neonDrive = null;
     this.viewportDirty = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -1854,7 +2008,6 @@ export class Terminal {
     this.activeLink = null;
     this.imageActionPending = false;
     this.hoverRange = null;
-    this.neonDrive = null;
     this.viewportDirty = false;
     this.ctx.fillStyle = PALETTE[0];
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -2230,10 +2383,6 @@ export class Terminal {
   }
 
   render(time) {
-    if (this.isNeonDriveActive()) {
-      this.renderNeonDrive(time);
-      return;
-    }
     this.processOutputQueue();
     if (this.viewportDirty) {
       this.repaintViewport();
