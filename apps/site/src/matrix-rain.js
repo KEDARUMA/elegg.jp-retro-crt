@@ -3,13 +3,13 @@ import { DEFAULT_RETRO_TUBE_PARAMETERS } from './retro-tube.js';
 const RETRO_TUBE_PARAMETERS = {
   ...DEFAULT_RETRO_TUBE_PARAMETERS,
   curve: 0.14,
-  bleed: 0.24,
-  sync: 0,
+  bleed: 2.0,
+  sync: 1,
   burst: 0,
-  bloomThreshold: 0.04,
+  bloomThreshold: 0.7,
   bloomSoftness: 0.18,
-  bloomRadius: 2.2,
-  bloomPasses: 2,
+  bloomRadius: 5.1,
+  bloomPasses: 3,
   bloomIntensity: 1.8,
   vsyncOffset: 0,
   vsyncSnap: 0,
@@ -18,15 +18,18 @@ const RETRO_TUBE_PARAMETERS = {
 };
 
 const GLYPH_LIFETIME = 3; // 1文字の表示寿命（秒）
-const STREAM_COUNT_MIN = 32; // ストリーム数の下限
-const STREAM_COUNT_MAX = 50; // ストリーム数の上限
+const STREAM_COUNT_MIN = 100; // ストリーム数の下限
+const STREAM_COUNT_MAX = 200; // ストリーム数の上限
 const MAX_GLYPHS_PER_STREAM = 25; // 1ストリームの最大文字数
 const STREAM_FONT_SIZE = 18; // ストリーム内の基準フォントサイズ
-const STREAM_Z_START_MIN = 2.4; // エントリー開始時の奥行き下限
+const STREAM_Z_START_MIN = 0.5; // エントリー開始時の奥行き下限
 const STREAM_Z_START_MAX = 5.0; // エントリー開始時の奥行き上限
 const STREAM_Z_OFFSET = 0.5; // 開始奥行きから差し引く量
 const STREAM_PROJECTION_FOCAL_LENGTH = 3.0; // z を画面倍率へ変換する係数
 const STREAM_APPROACH_DURATION = 3; // 奥行きが手前へ進む時間
+const STREAM_FADE_START = 1.8; // ストリーム全体のフェード開始時間
+const STREAM_X_RANGE_MIN = 0; // エントリー時のX座標下限
+const STREAM_X_RANGE_MAX = 640; // エントリー時のX座標上限
 const STREAM_CANVAS_WIDTH_FACTOR = 4; // viewCanvas 幅の倍率
 const STREAM_CANVAS_PADDING_FACTOR = 1.5; // 上下の透明余白倍率
 const STREAM_CELL_STEP = 18.45; // 文字間隔の固定値（旧範囲の中間）
@@ -112,7 +115,7 @@ class RainStream {
   }
 
   reset(width, height, initial = false) {
-    this.x = randomBetween(-width * 0.2, width * 0.2); // 画面中央からの横オフセット
+    this.x = randomBetween(STREAM_X_RANGE_MIN, STREAM_X_RANGE_MAX); // エントリー時のX座標
     this.y = randomBetween(-height * 0.15, height * 0.15); // 画面中央からの縦オフセット
     this.startZ = randomBetween(STREAM_Z_START_MIN, STREAM_Z_START_MAX); // エントリー時の奥行き
     this.targetZ = this.startZ - STREAM_Z_OFFSET; // 到達させる手前側の奥行き
@@ -135,12 +138,21 @@ class RainStream {
     return this.z;
   }
 
+  getOpacity() {
+    const fadeProgress = clamp(
+      (this.approachAge - STREAM_FADE_START) / (STREAM_APPROACH_DURATION - STREAM_FADE_START),
+      0,
+      1,
+    );
+    return 1 - easeInOut(fadeProgress);
+  }
+
   project(width, height) {
     // z から投影倍率を出して、画面中央基準で位置とサイズを決める。
     const z = this.getDepth();
     const scale = STREAM_PROJECTION_FOCAL_LENGTH / z;
     return {
-      screenX: width * 0.5 + this.x * scale,
+      screenX: width * 0.5 + (this.x - width * 0.5) * scale,
       screenY: height * 0.5 + this.y * scale,
       scale,
       z,
@@ -173,7 +185,7 @@ class RainStream {
     }
     this.glyphs.length = writeIndex;
 
-    if (this.nextSlot >= MAX_GLYPHS_PER_STREAM && this.glyphs.length === 0) {
+    if (this.approachAge >= STREAM_APPROACH_DURATION) {
       this.reset(width, height);
     }
   }
@@ -206,8 +218,9 @@ class RainStream {
     const scale = projection.scale;
     const drawWidth = this.viewCanvas.width * scale;
     const drawHeight = this.viewCanvas.height * scale;
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = this.getOpacity();
     ctx.drawImage(this.viewCanvas, projection.screenX - drawWidth / 2, projection.screenY - drawHeight / 2, drawWidth, drawHeight);
+    ctx.globalAlpha = 1;
   }
 }
 

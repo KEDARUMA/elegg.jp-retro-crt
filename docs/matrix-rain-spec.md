@@ -64,7 +64,7 @@ MATRIX RAIN TERMINATED
 
 現行実装の配置範囲:
 
-- X: 画面幅の 2% から 98%
+- X: `0` から `640`
 - Y: 画面高さの 12% から 88%
 
 ## 文字セット
@@ -122,9 +122,10 @@ MATRIX RAIN TERMINATED
 ## 文字の寿命
 
 - 各文字は個別の生成時刻を持ちます。
-- 生成から 3 秒後に完全に透明になり、ストリームから削除します。
+- 各文字は生成から最大 3 秒かけて不透明度を減衰します。
 - 不透明度は時間経過に合わせて減衰します。
-- 最大 25 スロットを生成し終わり、全ての文字が寿命を終えたらストリームを再生成します。
+- 接近開始から 1.8 秒後にストリーム全体のフェードアウトを開始します。
+- 接近開始から 3 秒後に完全に透明になり、同時にストリームを再生成します。
 
 ストリーム再生成時は、位置、文字間隔、生成間隔、文字列を再度ランダムに決定します。
 
@@ -210,6 +211,8 @@ drawY = centerY - drawHeight / 2
 - `STREAM_Z_OFFSET`: 開始奥行きから差し引く量
 - `STREAM_PROJECTION_FOCAL_LENGTH`: `z` を画面倍率へ変換する係数
 - `STREAM_APPROACH_DURATION`: 奥行きが手前へ到達するまでの時間。大きいほど近づくのはゆっくりになります。
+- `STREAM_FADE_START`: ストリーム全体のフェードアウトを開始する時間。
+- `STREAM_X_RANGE_MIN` / `STREAM_X_RANGE_MAX`: エントリー時の X 座標範囲。
 
 現行値は以下です。
 
@@ -222,6 +225,9 @@ drawY = centerY - drawHeight / 2
 | `STREAM_Z_OFFSET` | `1.1` |
 | `STREAM_PROJECTION_FOCAL_LENGTH` | `3.0` |
 | `STREAM_APPROACH_DURATION` | `3` |
+| `STREAM_FADE_START` | `1.8` |
+| `STREAM_X_RANGE_MIN` | `0` |
+| `STREAM_X_RANGE_MAX` | `640` |
 
 ## CRT パラメータ
 
@@ -306,6 +312,9 @@ Matrix Rain はゲーム操作を持ちません。
 | `STREAM_Z_OFFSET` | `1.1` | 開始奥行きから差し引く量 |
 | `STREAM_PROJECTION_FOCAL_LENGTH` | `3.0` | `z` を画面倍率へ変換する係数 |
 | `STREAM_APPROACH_DURATION` | `3` | 奥行きが手前へ到達するまでの時間 |
+| `STREAM_FADE_START` | `1.8` | ストリーム全体のフェード開始時間 |
+| `STREAM_X_RANGE_MIN` | `0` | エントリー時の X 座標下限 |
+| `STREAM_X_RANGE_MAX` | `640` | エントリー時の X 座標上限 |
 | `GLYPH_CACHE_LIMIT` | `768` | Glyph キャッシュ上限 |
 
 ## 変更時の確認項目
@@ -314,7 +323,7 @@ Matrix Rain はゲーム操作を持ちません。
 - 文字がスロット順に上から下へ追加されること
 - エントリー済み文字のストリーム Canvas 内 Y 座標が変化しないこと
 - 1 ストリームが 25 文字を超えないこと
-- 各文字が生成から 3 秒で削除され、奥行きは 3 秒かけて手前へ進むこと
+- 接近開始から 1.8 秒後にフェードが始まり、3 秒後の完全消灯まで奥行きが手前へ進むこと
 - `z` の終端値が開始値から固定オフセットだけ減ること
 - ストリーム Canvas の投影で縦横比が変化しないこと
 - 投影中心が中央であること
