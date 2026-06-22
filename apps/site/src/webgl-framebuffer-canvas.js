@@ -281,6 +281,14 @@ export class WebGlFramebufferCanvas {
     this.drawQuad({ x, y, width: imageData.width, height: imageData.height, texture: this.uploadTexture, useTexture: true });
   }
 
+  putCanvas(sourceCanvas, x = 0, y = 0) {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.uploadTexture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+    this.drawQuad({ x, y, width: sourceCanvas.width, height: sourceCanvas.height, texture: this.uploadTexture, useTexture: true });
+  }
+
   drawImage(sourceCanvas, sx, sy, sw, sh, dx, dy, dw, dh) {
     if (sourceCanvas !== this && sourceCanvas !== this.canvas) {
       this.stagingCanvas.width = dw;

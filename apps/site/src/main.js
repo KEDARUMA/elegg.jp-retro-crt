@@ -11,7 +11,7 @@ const params = new URLSearchParams(window.location.search);
 const testMode = params.get('test') === '1';
 const startupMdsPath = params.get('mds') || '';
 const startupVfsPath = params.get('vfs') || '';
-// release は terminal 固定。dev だけ boot=neon-drive を許可する。
+// release は terminal 固定。dev だけ boot=runtime-name を許可する。
 const bootRuntimeName = import.meta.env.PROD ? 'terminal' : (params.get('boot') || 'terminal');
 const mobileBrowserEnv = !testMode && isMobileBrowserEnv();
 const MOBILE_FAST_OUTPUT_LATCH_MS = 900;
@@ -38,6 +38,7 @@ const runtimeSystem = {
   pushRuntime,
   popRuntime,
   createNeonDriveRuntime,
+  createMatrixRainRuntime,
 };
 const terminal = new Terminal(lowCanvas, { cols: initialGrid.cols, rows: initialGrid.rows, startupMdsPath, startupVfsPath, testMode, runtimeSystem });
 const retroTube = testMode ? null : new RetroTube(crtCanvas, lowCanvas.canvas);
@@ -110,9 +111,65 @@ class NeonDriveRuntime {
   pasteText() {}
 }
 
+class MatrixRainRuntime {
+  constructor(matrixRain, system) {
+    this.matrixRain = matrixRain;
+    this.system = system;
+    this.exitMessage = 'MATRIX RAIN TERMINATED';
+  }
+
+  render(time) {
+    const canvas = this.matrixRain.render(time, lowCanvas.width, lowCanvas.height);
+    if (canvas) {
+      lowCanvas.putCanvas(canvas);
+    }
+  }
+
+  apply(retroTube, time) {
+    this.matrixRain.applyRetroTubeParameters(retroTube, time);
+  }
+
+  handleKey(event) {
+    if (this.matrixRain.handleKey(event) === 'exit') {
+      this.system.popRuntime(this);
+    }
+  }
+
+  handleKeyUp(event) {
+    this.matrixRain.handleKeyUp(event);
+  }
+
+  releaseInput() {
+    this.matrixRain.releaseInput();
+  }
+
+  exit() {
+    this.matrixRain.releaseInput();
+  }
+
+  handlePointer() {
+    return false;
+  }
+
+  handlePointerMove() {
+    return false;
+  }
+
+  handlePointerLeave() {}
+
+  handleWheel() {}
+
+  pasteText() {}
+}
+
 async function createNeonDriveRuntime() {
   const { NeonDrive } = await import('./neon-drive.js');
   return new NeonDriveRuntime(new NeonDrive(), runtimeSystem);
+}
+
+async function createMatrixRainRuntime() {
+  const { MatrixRain } = await import('./matrix-rain.js');
+  return new MatrixRainRuntime(new MatrixRain(), runtimeSystem);
 }
 
 function pushRuntime(runtime) {
@@ -555,11 +612,18 @@ window.addEventListener('resize', () => {
   callActiveRuntime('kickRetroTubeVsyncDrift');
 });
 
-if (bootRuntimeName === 'neon-drive') {
-  try {
-    pushRuntime(await createNeonDriveRuntime());
-  } catch (error) {
-    console.error(error);
+if (bootRuntimeName !== 'terminal') {
+  const runtimeFactories = {
+    'neon-drive': createNeonDriveRuntime,
+    'matrix-rain': createMatrixRainRuntime,
+  };
+  const createRuntime = runtimeFactories[bootRuntimeName];
+  if (createRuntime) {
+    try {
+      pushRuntime(await createRuntime());
+    } catch (error) {
+      console.error(error);
+    }
   }
 }
 
