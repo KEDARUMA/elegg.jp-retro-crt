@@ -16,6 +16,7 @@ mds-browser FILE.mds
 - ブラウザ表示中は通常のターミナル入力とペーストを無視します。
 - リンククリックは有効です。
 - `Ctrl+C` を押すとブラウザ表示を終了し、`^C` を表示してシェルプロンプトへ戻ります。
+- `cmd:exit` のリンクをクリックした場合も、`^C` を表示してシェルプロンプトへ戻ります。
 
 ## MDS コンテンツ配置
 
@@ -256,9 +257,11 @@ https://example.com/
 
 ```mds
 <a href="cmd:echo 'abc'">Run Echo</a>
+<a href="cmd:exit">Exit MDS Browser</a>
 ```
 
 `cmd:` 以降のコマンドを仮想ターミナル内で実行します。
+`exit` は MDS ブラウザを終了します。
 
 ### ホバー表示
 

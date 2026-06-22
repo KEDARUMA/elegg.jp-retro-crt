@@ -1109,6 +1109,10 @@ export class Terminal {
       await this.startNeonDrive();
       return;
     }
+    if (name === 'matrix-rain') {
+      await this.startMatrixRain();
+      return;
+    }
     if (name === 'help') {
       this.write('\x1b[96mCOMMANDS\x1b[0m\r\n');
       this.write('  help      show command list\r\n');
@@ -1120,6 +1124,7 @@ export class Terminal {
       this.write('  cat FILE  print file\r\n');
       this.write('  imgcat FILE.jpg [SIZE%]\r\n');
       this.write('  mds-browser FILE.mds\r\n');
+      this.write('  matrix-rain\r\n');
       this.write('  reload    reload root filesystem\r\n');
       this.write('  ansi      print ANSI color test\r\n');
       this.write('  clear     clear screen\r\n');
@@ -1173,6 +1178,10 @@ export class Terminal {
     }
     if (name === 'mds-browser') {
       this.mdsBrowser(argv.slice(1));
+      return;
+    }
+    if (name === 'exit' && this.mdsBrowserActive) {
+      this.exitMdsBrowser({ showPrompt: false });
       return;
     }
     if (name === 'reload') {
@@ -1576,13 +1585,15 @@ export class Terminal {
     });
   }
 
-  exitMdsBrowser() {
+  exitMdsBrowser({ showPrompt = true } = {}) {
     if (!this.mdsBrowserActive) {
       return;
     }
     this.mdsBrowserActive = false;
     this.write('\r\n^C\r\n');
-    this.showPrompt();
+    if (showPrompt) {
+      this.showPrompt();
+    }
   }
 
   async startNeonDrive() {
@@ -1594,6 +1605,18 @@ export class Terminal {
       this.runtimeSystem.pushRuntime(await this.runtimeSystem.createNeonDriveRuntime());
     } catch (error) {
       this.write(`neon-drive: ${error.message}\r\n`);
+    }
+  }
+
+  async startMatrixRain() {
+    this.clear();
+    try {
+      if (!this.runtimeSystem?.pushRuntime || !this.runtimeSystem?.createMatrixRainRuntime) {
+        throw new Error('runtime system is not available');
+      }
+      this.runtimeSystem.pushRuntime(await this.runtimeSystem.createMatrixRainRuntime());
+    } catch (error) {
+      this.write(`matrix-rain: ${error.message}\r\n`);
     }
   }
 

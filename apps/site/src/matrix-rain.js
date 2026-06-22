@@ -33,9 +33,13 @@ const STREAM_X_RANGE_MAX = 640; // エントリー時のX座標上限
 const STREAM_CANVAS_WIDTH_FACTOR = 4; // viewCanvas 幅の倍率
 const STREAM_CANVAS_PADDING_FACTOR = 1.5; // 上下の透明余白倍率
 const STREAM_CELL_STEP = 18.45; // 文字間隔の固定値（旧範囲の中間）
+const GLYPH_MUTATION_FPS = 6; // 差し替え対象文字を1秒間に更新する回数
+const GLYPH_MUTATION_INTERVAL = 1 / GLYPH_MUTATION_FPS; // 差し替え対象文字の更新間隔（秒）
+const GLYPH_MUTATION_COUNT_MIN = 1; // 1ストリーム内の差し替え対象数の下限
+const GLYPH_MUTATION_COUNT_MAX = 4; // 1ストリーム内の差し替え対象数の上限
 const FONT_FAMILY = '"MS Gothic", "Hiragino Sans", monospace'; // グリフ描画用の等幅フォント
 const GLYPH_CACHE_LIMIT = 768; // Glyph キャッシュの上限数
-const KATAKANA = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝｧｨｩｪｫｬｭｮｯ'; // 使用する半角カタカナ一覧
+const KATAKANA = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝｧｨｩｪｫｬｭｮｯΓΔΛΞΠΣΦΨΩБДЖЩЭЯ'; // 使用する半角カタカナ一覧
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -55,6 +59,28 @@ function randomBetween(min, max) {
 
 function randomKatakana() {
   return KATAKANA[Math.floor(Math.random() * KATAKANA.length)];
+}
+
+function randomKatakanaExcept(currentChar) {
+  let nextChar = randomKatakana();
+  while (nextChar === currentChar) {
+    nextChar = randomKatakana();
+  }
+  return nextChar;
+}
+
+function createMutationSlots() {
+  const count =
+    GLYPH_MUTATION_COUNT_MIN +
+    Math.floor(Math.random() * (GLYPH_MUTATION_COUNT_MAX - GLYPH_MUTATION_COUNT_MIN + 1));
+  const slots = Array.from({ length: MAX_GLYPHS_PER_STREAM }, (_, index) => index);
+
+  for (let index = 0; index < count; index += 1) {
+    const swapIndex = index + Math.floor(Math.random() * (slots.length - index));
+    [slots[index], slots[swapIndex]] = [slots[swapIndex], slots[index]];
+  }
+
+  return new Set(slots.slice(0, count));
 }
 
 class GlyphSpriteCache {
@@ -88,6 +114,9 @@ class GlyphSpriteCache {
     ctx.font = `700 ${quantizedSize}px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.translate(size, 0);
+    ctx.scale(-1, 1);
     ctx.shadowColor = white ? '#aaff9a' : '#21ff16';
     ctx.shadowBlur = quantizedSize * (white ? 0.65 : 0.48);
     ctx.fillStyle = white ? '#f4fff0' : '#43ff35';
@@ -97,6 +126,7 @@ class GlyphSpriteCache {
       ctx.fillStyle = '#98ff7d';
       ctx.fillText(char, size / 2, size / 2);
     }
+    ctx.restore();
 
     this.cache.set(key, canvas);
     return canvas;
@@ -104,17 +134,17 @@ class GlyphSpriteCache {
 }
 
 class RainStream {
-  constructor(width, height) {
+  constructor(width, height, initialDelay) {
     this.viewCanvas = document.createElement('canvas');
     this.viewCtx = this.viewCanvas.getContext('2d');
     if (!this.viewCtx) {
       throw new Error('2D canvas is not available');
     }
     this.glyphs = [];
-    this.reset(width, height, true);
+    this.reset(width, height, initialDelay);
   }
 
-  reset(width, height, initial = false) {
+  reset(width, height, spawnDelay = 0) {
     this.x = randomBetween(STREAM_X_RANGE_MIN, STREAM_X_RANGE_MAX); // エントリー時のX座標
     this.y = randomBetween(-height * 0.15, height * 0.15); // 画面中央からの縦オフセット
     this.startZ = randomBetween(STREAM_Z_START_MIN, STREAM_Z_START_MAX); // エントリー時の奥行き
@@ -122,7 +152,9 @@ class RainStream {
     this.approachAge = 0;
     this.baseCellStep = STREAM_CELL_STEP;
     this.spawnInterval = randomBetween(0.055, 0.11);
-    this.spawnAccumulator = initial ? -randomBetween(0, 1.2) : -randomBetween(0.1, 0.8);
+    this.spawnAccumulator = -spawnDelay;
+    this.mutationSlots = createMutationSlots();
+    this.mutationAccumulator = 0;
     this.nextSlot = 0;
     this.z = this.startZ;
     this.viewPadding = Math.ceil(STREAM_FONT_SIZE * STREAM_CANVAS_PADDING_FACTOR);
@@ -173,6 +205,18 @@ class RainStream {
         slot: this.nextSlot,
       });
       this.nextSlot += 1;
+    }
+
+    if (this.spawnAccumulator >= 0) {
+      this.mutationAccumulator += dt;
+      while (this.mutationAccumulator >= GLYPH_MUTATION_INTERVAL) {
+        this.mutationAccumulator -= GLYPH_MUTATION_INTERVAL;
+        for (const glyph of this.glyphs) {
+          if (this.mutationSlots.has(glyph.slot)) {
+            glyph.char = randomKatakanaExcept(glyph.char);
+          }
+        }
+      }
     }
 
     let writeIndex = 0;
@@ -287,7 +331,10 @@ export class MatrixRain {
       return;
     }
     this.viewportKey = viewportKey;
-    this.streams = Array.from({ length: targetCount }, () => new RainStream(width, height));
+    this.streams = Array.from(
+      { length: targetCount },
+      (_, index) => new RainStream(width, height, (STREAM_APPROACH_DURATION * index) / targetCount),
+    );
   }
 
   drawScene(nowSeconds, width, height, projectedStreams) {
