@@ -1,14 +1,19 @@
-# Elegg Retro CRT / AA Maker
+# Elegg Retro-Tube / AA Maker
 
 ## 日本語
 
 このリポジトリには、次の2つの主要コンポーネントがあります。
 
-- `AA-Maker`: ブラウザ上でアスキーアートを作成するエディター
-- `Elegg Retro CRT`: レトロ CRT シミュレーター上で動くホームページ
+- [AA Maker](./apps/aa-maker/README.md): ブラウザ上でアスキーアートを作成するエディター
+- [Elegg Retro-Tube](./apps/site/README.md): レトロ CRT シミュレーター上で動くホームページ
 
-`AA-Maker` は、初期80x25の可変グリッドで文字を配置し、半角と全角の幅を考慮して編集するための SPA です。
-`Elegg Retro CRT` は、ターミナル風の表示を WebGL とシェーダーで歪ませる、ブラウザ向けのホームページです。
+`AA Maker` は、初期80x25の可変グリッドで文字を配置し、半角と全角の幅を考慮して編集するための SPA です。
+`Elegg Retro-Tube` は、ターミナル風の表示を WebGL とシェーダーで歪ませる、ブラウザ向けのホームページです。
+
+## 公開サイト
+
+- Elegg Retro-Tube: [https://elegg.jp](https://elegg.jp)
+- AA Maker: [https://aa-maker.elegg.jp/](https://aa-maker.elegg.jp/)
 
 ## 起動
 
@@ -17,7 +22,7 @@ pnpm dev
 pnpm dev:aa-maker
 ```
 
-- Elegg Retro CRT: `http://127.0.0.1:5173`
+- Elegg Retro-Tube: `http://127.0.0.1:5173`
 - AA Maker: `http://127.0.0.1:5174`
 
 ## ビルド
@@ -49,11 +54,16 @@ pnpm test
 
 This repository contains two main components:
 
-- `AA-Maker`: a browser-based editor for ASCII art
-- `Elegg Retro CRT`: a homepage rendered through a retro CRT simulator
+- [AA Maker](./apps/aa-maker/README.md): a browser-based editor for ASCII art
+- [Elegg Retro-Tube](./apps/site/README.md): a homepage rendered through a retro CRT simulator
 
-`AA-Maker` is an SPA for placing characters on a resizable grid that starts at 80x25 while respecting half-width and full-width character widths.
-`Elegg Retro CRT` is a browser-facing homepage that bends terminal-like output through WebGL and shader effects.
+`AA Maker` is an SPA for placing characters on a resizable grid that starts at 80x25 while respecting half-width and full-width character widths.
+`Elegg Retro-Tube` is a browser-facing homepage that bends terminal-like output through WebGL and shader effects.
+
+## Live Sites
+
+- Elegg Retro-Tube: [https://elegg.jp](https://elegg.jp)
+- AA Maker: [https://aa-maker.elegg.jp/](https://aa-maker.elegg.jp/)
 
 ## Run
 
@@ -62,7 +72,7 @@ pnpm dev
 pnpm dev:aa-maker
 ```
 
-- Elegg Retro CRT: `http://127.0.0.1:5173`
+- Elegg Retro-Tube: `http://127.0.0.1:5173`
 - AA Maker: `http://127.0.0.1:5174`
 
 ## Build
