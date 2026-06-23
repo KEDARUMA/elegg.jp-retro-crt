@@ -1131,7 +1131,7 @@ export class Terminal {
       return;
     }
     if (name === 'about') {
-      this.write('\x1b[92mElegg Retro CRT\x1b[0m\r\n');
+      this.write('\x1b[92mElegg Retro-Tube\x1b[0m\r\n');
       this.write(`${this.cols}x${this.rows} cells, 8x16 font with phosphor drift.\r\n`);
       this.write('日本語は全角セルで表示します。\r\n');
       return;

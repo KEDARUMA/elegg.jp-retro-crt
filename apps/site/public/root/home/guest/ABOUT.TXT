@@ -1,4 +1,4 @@
-Elegg Retro CRT is a browser homepage disguised as a bad CRT.
+Elegg Retro-Tube is a browser homepage disguised as a bad CRT.
 
 The terminal is drawn to an offscreen console first.
 A WebGL shader then bends, bleeds, scans, and jitters it.
